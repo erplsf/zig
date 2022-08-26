@@ -43,6 +43,7 @@ mkdir build
 cd build
 cmake .. \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
+  -DCMAKE_INSTALL_PREFIX="$DISTDIR" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_AR="$PREFIX/bin/ar" \
   -DCMAKE_RANLIB="$PREFIX/bin/ranlib" \
@@ -56,12 +57,3 @@ cmake .. \
 unset CC
 unset CXX
 samu install
-
-stage2/bin/zig build \
-  --prefix "$DISTDIR" \
-  --search-prefix "$PREFIX" \
-  -Dstatic-llvm \
-  -Drelease \
-  -Dstrip \
-  -Dtarget="$TARGET" \
-  -Denable-stage1
