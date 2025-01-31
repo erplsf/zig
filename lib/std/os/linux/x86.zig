@@ -1,10 +1,11 @@
+const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 const linux = std.os.linux;
 const SYS = linux.SYS;
 const socklen_t = linux.socklen_t;
-const iovec = std.os.iovec;
-const iovec_const = std.os.iovec_const;
+const iovec = std.posix.iovec;
+const iovec_const = std.posix.iovec_const;
 const uid_t = linux.uid_t;
 const gid_t = linux.gid_t;
 const pid_t = linux.pid_t;
@@ -16,7 +17,7 @@ const timespec = linux.timespec;
 pub fn syscall0(number: SYS) usize {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize),
-        : [number] "{eax}" (@enumToInt(number)),
+        : [number] "{eax}" (@intFromEnum(number)),
         : "memory"
     );
 }
@@ -24,7 +25,7 @@ pub fn syscall0(number: SYS) usize {
 pub fn syscall1(number: SYS, arg1: usize) usize {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize),
-        : [number] "{eax}" (@enumToInt(number)),
+        : [number] "{eax}" (@intFromEnum(number)),
           [arg1] "{ebx}" (arg1),
         : "memory"
     );
@@ -33,7 +34,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize),
-        : [number] "{eax}" (@enumToInt(number)),
+        : [number] "{eax}" (@intFromEnum(number)),
           [arg1] "{ebx}" (arg1),
           [arg2] "{ecx}" (arg2),
         : "memory"
@@ -43,7 +44,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize),
-        : [number] "{eax}" (@enumToInt(number)),
+        : [number] "{eax}" (@intFromEnum(number)),
           [arg1] "{ebx}" (arg1),
           [arg2] "{ecx}" (arg2),
           [arg3] "{edx}" (arg3),
@@ -54,7 +55,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize),
-        : [number] "{eax}" (@enumToInt(number)),
+        : [number] "{eax}" (@intFromEnum(number)),
           [arg1] "{ebx}" (arg1),
           [arg2] "{ecx}" (arg2),
           [arg3] "{edx}" (arg3),
@@ -66,7 +67,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
 pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize),
-        : [number] "{eax}" (@enumToInt(number)),
+        : [number] "{eax}" (@intFromEnum(number)),
           [arg1] "{ebx}" (arg1),
           [arg2] "{ecx}" (arg2),
           [arg3] "{edx}" (arg3),
@@ -85,108 +86,127 @@ pub fn syscall6(
     arg5: usize,
     arg6: usize,
 ) usize {
-    // The 6th argument is passed via memory as we're out of registers if ebp is
-    // used as frame pointer. We push arg6 value on the stack before changing
-    // ebp or esp as the compiler may reference it as an offset relative to one
-    // of those two registers.
+    // arg5/arg6 are passed via memory as we're out of registers if ebp is used as frame pointer, or
+    // if we're compiling with PIC. We push arg5/arg6 on the stack before changing ebp/esp as the
+    // compiler may reference arg5/arg6 as an offset relative to ebp/esp.
     return asm volatile (
+        \\ push %[arg5]
         \\ push %[arg6]
+        \\ push %%edi
         \\ push %%ebp
-        \\ mov  4(%%esp), %%ebp
+        \\ mov  12(%%esp), %%edi
+        \\ mov  8(%%esp), %%ebp
         \\ int  $0x80
         \\ pop  %%ebp
-        \\ add  $4, %%esp
+        \\ pop  %%edi
+        \\ add  $8, %%esp
         : [ret] "={eax}" (-> usize),
-        : [number] "{eax}" (@enumToInt(number)),
+        : [number] "{eax}" (@intFromEnum(number)),
           [arg1] "{ebx}" (arg1),
           [arg2] "{ecx}" (arg2),
           [arg3] "{edx}" (arg3),
           [arg4] "{esi}" (arg4),
-          [arg5] "{edi}" (arg5),
+          [arg5] "rm" (arg5),
           [arg6] "rm" (arg6),
         : "memory"
     );
 }
 
-pub fn socketcall(call: usize, args: [*]usize) usize {
+pub fn socketcall(call: usize, args: [*]const usize) usize {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize),
-        : [number] "{eax}" (@enumToInt(SYS.socketcall)),
+        : [number] "{eax}" (@intFromEnum(SYS.socketcall)),
           [arg1] "{ebx}" (call),
-          [arg2] "{ecx}" (@ptrToInt(args)),
+          [arg2] "{ecx}" (@intFromPtr(args)),
         : "memory"
     );
 }
 
-const CloneFn = *const fn (arg: usize) callconv(.C) u8;
+pub fn clone() callconv(.Naked) usize {
+    // __clone(func, stack, flags, arg, ptid, tls, ctid)
+    //         +8,   +12,   +16,   +20, +24,  +28, +32
+    //
+    // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
+    //         eax,       ebx,   ecx,   edx,  esi, edi
+    asm volatile (
+        \\  pushl %%ebp
+        \\  movl %%esp,%%ebp
+        \\  pushl %%ebx
+        \\  pushl %%esi
+        \\  pushl %%edi
+        \\  // Setup the arguments
+        \\  movl 16(%%ebp),%%ebx
+        \\  movl 12(%%ebp),%%ecx
+        \\  andl $-16,%%ecx
+        \\  subl $20,%%ecx
+        \\  movl 20(%%ebp),%%eax
+        \\  movl %%eax,4(%%ecx)
+        \\  movl 8(%%ebp),%%eax
+        \\  movl %%eax,0(%%ecx)
+        \\  movl 24(%%ebp),%%edx
+        \\  movl 28(%%ebp),%%esi
+        \\  movl 32(%%ebp),%%edi
+        \\  movl $120,%%eax // SYS_clone
+        \\  int $128
+        \\  testl %%eax,%%eax
+        \\  jz 1f
+        \\  popl %%edi
+        \\  popl %%esi
+        \\  popl %%ebx
+        \\  popl %%ebp
+        \\  retl
+        \\
+        \\1:
+    );
+    if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
+        \\  .cfi_undefined %%eip
+    );
+    asm volatile (
+        \\  xorl %%ebp,%%ebp
+        \\
+        \\  popl %%eax
+        \\  calll *%%eax
+        \\  movl %%eax,%%ebx
+        \\  movl $1,%%eax // SYS_exit
+        \\  int $128
+    );
+}
 
-/// This matches the libc clone function.
-pub extern fn clone(func: CloneFn, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
-
-pub fn restore() callconv(.Naked) void {
+pub fn restore() callconv(.Naked) noreturn {
     switch (@import("builtin").zig_backend) {
         .stage2_c => asm volatile (
             \\ movl %[number], %%eax
             \\ int $0x80
-            \\ ret
             :
-            : [number] "i" (@enumToInt(SYS.sigreturn)),
+            : [number] "i" (@intFromEnum(SYS.sigreturn)),
             : "memory"
         ),
         else => asm volatile (
             \\ int $0x80
-            \\ ret
             :
-            : [number] "{eax}" (@enumToInt(SYS.sigreturn)),
+            : [number] "{eax}" (@intFromEnum(SYS.sigreturn)),
             : "memory"
         ),
     }
-    unreachable;
 }
 
-pub fn restore_rt() callconv(.Naked) void {
+pub fn restore_rt() callconv(.Naked) noreturn {
     switch (@import("builtin").zig_backend) {
         .stage2_c => asm volatile (
             \\ movl %[number], %%eax
             \\ int $0x80
-            \\ ret
             :
-            : [number] "i" (@enumToInt(SYS.rt_sigreturn)),
+            : [number] "i" (@intFromEnum(SYS.rt_sigreturn)),
             : "memory"
         ),
         else => asm volatile (
             \\ int $0x80
-            \\ ret
             :
-            : [number] "{eax}" (@enumToInt(SYS.rt_sigreturn)),
+            : [number] "{eax}" (@intFromEnum(SYS.rt_sigreturn)),
             : "memory"
         ),
     }
-    unreachable;
 }
-
-pub const O = struct {
-    pub const CREAT = 0o100;
-    pub const EXCL = 0o200;
-    pub const NOCTTY = 0o400;
-    pub const TRUNC = 0o1000;
-    pub const APPEND = 0o2000;
-    pub const NONBLOCK = 0o4000;
-    pub const DSYNC = 0o10000;
-    pub const SYNC = 0o4010000;
-    pub const RSYNC = 0o4010000;
-    pub const DIRECTORY = 0o200000;
-    pub const NOFOLLOW = 0o400000;
-    pub const CLOEXEC = 0o2000000;
-
-    pub const ASYNC = 0o20000;
-    pub const DIRECT = 0o40000;
-    pub const LARGEFILE = 0o100000;
-    pub const NOATIME = 0o1000000;
-    pub const PATH = 0o10000000;
-    pub const TMPFILE = 0o20200000;
-    pub const NDELAY = NONBLOCK;
-};
 
 pub const F = struct {
     pub const DUPFD = 0;
@@ -208,22 +228,6 @@ pub const F = struct {
     pub const RDLCK = 0;
     pub const WRLCK = 1;
     pub const UNLCK = 2;
-};
-
-pub const LOCK = struct {
-    pub const SH = 1;
-    pub const EX = 2;
-    pub const NB = 4;
-    pub const UN = 8;
-};
-
-pub const MAP = struct {
-    pub const NORESERVE = 0x4000;
-    pub const GROWSDOWN = 0x0100;
-    pub const DENYWRITE = 0x0800;
-    pub const EXECUTABLE = 0x1000;
-    pub const LOCKED = 0x2000;
-    pub const @"32BIT" = 0x40;
 };
 
 pub const MMAP2_UNIT = 4096;
@@ -305,13 +309,13 @@ pub const Stat = extern struct {
 };
 
 pub const timeval = extern struct {
-    tv_sec: i32,
-    tv_usec: i32,
+    sec: i32,
+    usec: i32,
 };
 
 pub const timezone = extern struct {
-    tz_minuteswest: i32,
-    tz_dsttime: i32,
+    minuteswest: i32,
+    dsttime: i32,
 };
 
 pub const mcontext_t = extern struct {
@@ -354,16 +358,19 @@ pub const ucontext_t = extern struct {
 
 pub const Elf_Symndx = u32;
 
-pub const user_desc = packed struct {
+pub const user_desc = extern struct {
     entry_number: u32,
     base_addr: u32,
     limit: u32,
-    seg_32bit: u1,
-    contents: u2,
-    read_exec_only: u1,
-    limit_in_pages: u1,
-    seg_not_present: u1,
-    useable: u1,
+    flags: packed struct(u32) {
+        seg_32bit: u1,
+        contents: u2,
+        read_exec_only: u1,
+        limit_in_pages: u1,
+        seg_not_present: u1,
+        useable: u1,
+        _: u25 = undefined,
+    },
 };
 
 /// socketcall() call numbers
@@ -389,3 +396,89 @@ pub const SC = struct {
     pub const recvmmsg = 19;
     pub const sendmmsg = 20;
 };
+
+fn gpRegisterOffset(comptime reg_index: comptime_int) usize {
+    return @offsetOf(ucontext_t, "mcontext") + @offsetOf(mcontext_t, "gregs") + @sizeOf(usize) * reg_index;
+}
+
+noinline fn getContextReturnAddress() usize {
+    return @returnAddress();
+}
+
+pub fn getContextInternal() callconv(.Naked) usize {
+    asm volatile (
+        \\ movl $0, %[flags_offset:c](%%edx)
+        \\ movl $0, %[link_offset:c](%%edx)
+        \\ movl %%edi, %[edi_offset:c](%%edx)
+        \\ movl %%esi, %[esi_offset:c](%%edx)
+        \\ movl %%ebp, %[ebp_offset:c](%%edx)
+        \\ movl %%ebx, %[ebx_offset:c](%%edx)
+        \\ movl %%edx, %[edx_offset:c](%%edx)
+        \\ movl %%ecx, %[ecx_offset:c](%%edx)
+        \\ movl %%eax, %[eax_offset:c](%%edx)
+        \\ movl (%%esp), %%ecx
+        \\ movl %%ecx, %[eip_offset:c](%%edx)
+        \\ leal 4(%%esp), %%ecx
+        \\ movl %%ecx, %[esp_offset:c](%%edx)
+        \\ xorl %%ecx, %%ecx
+        \\ movw %%fs, %%cx
+        \\ movl %%ecx, %[fs_offset:c](%%edx)
+        \\ leal %[regspace_offset:c](%%edx), %%ecx
+        \\ movl %%ecx, %[fpregs_offset:c](%%edx)
+        \\ fnstenv (%%ecx)
+        \\ fldenv (%%ecx)
+        \\ pushl %%ebx
+        \\ pushl %%esi
+        \\ xorl %%ebx, %%ebx
+        \\ movl %[sigaltstack], %%eax
+        \\ leal %[stack_offset:c](%%edx), %%ecx
+        \\ int $0x80
+        \\ testl %%eax, %%eax
+        \\ jnz 0f
+        \\ movl %[sigprocmask], %%eax
+        \\ xorl %%ecx, %%ecx
+        \\ leal %[sigmask_offset:c](%%edx), %%edx
+        \\ movl %[sigset_size], %%esi
+        \\ int $0x80
+        \\0:
+        \\ popl %%esi
+        \\ popl %%ebx
+        \\ retl
+        :
+        : [flags_offset] "i" (@offsetOf(ucontext_t, "flags")),
+          [link_offset] "i" (@offsetOf(ucontext_t, "link")),
+          [edi_offset] "i" (comptime gpRegisterOffset(REG.EDI)),
+          [esi_offset] "i" (comptime gpRegisterOffset(REG.ESI)),
+          [ebp_offset] "i" (comptime gpRegisterOffset(REG.EBP)),
+          [esp_offset] "i" (comptime gpRegisterOffset(REG.ESP)),
+          [ebx_offset] "i" (comptime gpRegisterOffset(REG.EBX)),
+          [edx_offset] "i" (comptime gpRegisterOffset(REG.EDX)),
+          [ecx_offset] "i" (comptime gpRegisterOffset(REG.ECX)),
+          [eax_offset] "i" (comptime gpRegisterOffset(REG.EAX)),
+          [eip_offset] "i" (comptime gpRegisterOffset(REG.EIP)),
+          [fs_offset] "i" (comptime gpRegisterOffset(REG.FS)),
+          [fpregs_offset] "i" (@offsetOf(ucontext_t, "mcontext") + @offsetOf(mcontext_t, "fpregs")),
+          [regspace_offset] "i" (@offsetOf(ucontext_t, "regspace")),
+          [sigaltstack] "i" (@intFromEnum(linux.SYS.sigaltstack)),
+          [stack_offset] "i" (@offsetOf(ucontext_t, "stack")),
+          [sigprocmask] "i" (@intFromEnum(linux.SYS.rt_sigprocmask)),
+          [sigmask_offset] "i" (@offsetOf(ucontext_t, "sigmask")),
+          [sigset_size] "i" (linux.NSIG / 8),
+        : "cc", "memory", "eax", "ecx", "edx"
+    );
+}
+
+pub inline fn getcontext(context: *ucontext_t) usize {
+    // This method is used so that getContextInternal can control
+    // its prologue in order to read ESP from a constant offset.
+    // An aligned stack is not needed for getContextInternal.
+    var clobber_edx: usize = undefined;
+    return asm volatile (
+        \\ calll %[getContextInternal:P]
+        : [_] "={eax}" (-> usize),
+          [_] "={edx}" (clobber_edx),
+        : [_] "{edx}" (context),
+          [getContextInternal] "X" (&getContextInternal),
+        : "cc", "memory", "ecx"
+    );
+}

@@ -17,19 +17,21 @@ pub const Algorithm = enum {
     ecdsa_with_SHA512,
     md2WithRSAEncryption,
     md5WithRSAEncryption,
+    curveEd25519,
 
-    pub const map = std.ComptimeStringMap(Algorithm, .{
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x05 }, .sha1WithRSAEncryption },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0B }, .sha256WithRSAEncryption },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0C }, .sha384WithRSAEncryption },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0D }, .sha512WithRSAEncryption },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0E }, .sha224WithRSAEncryption },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x01 }, .ecdsa_with_SHA224 },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x02 }, .ecdsa_with_SHA256 },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x03 }, .ecdsa_with_SHA384 },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x04 }, .ecdsa_with_SHA512 },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x02 }, .md2WithRSAEncryption },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x04 }, .md5WithRSAEncryption },
+    pub const map = std.StaticStringMap(Algorithm).initComptime(.{
+        .{ &.{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x05 }, .sha1WithRSAEncryption },
+        .{ &.{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0B }, .sha256WithRSAEncryption },
+        .{ &.{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0C }, .sha384WithRSAEncryption },
+        .{ &.{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0D }, .sha512WithRSAEncryption },
+        .{ &.{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0E }, .sha224WithRSAEncryption },
+        .{ &.{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x01 }, .ecdsa_with_SHA224 },
+        .{ &.{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x02 }, .ecdsa_with_SHA256 },
+        .{ &.{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x03 }, .ecdsa_with_SHA384 },
+        .{ &.{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x04 }, .ecdsa_with_SHA512 },
+        .{ &.{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x02 }, .md2WithRSAEncryption },
+        .{ &.{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x04 }, .md5WithRSAEncryption },
+        .{ &.{ 0x2B, 0x65, 0x70 }, .curveEd25519 },
     });
 
     pub fn Hash(comptime algorithm: Algorithm) type {
@@ -38,7 +40,7 @@ pub const Algorithm = enum {
             .ecdsa_with_SHA224, .sha224WithRSAEncryption => crypto.hash.sha2.Sha224,
             .ecdsa_with_SHA256, .sha256WithRSAEncryption => crypto.hash.sha2.Sha256,
             .ecdsa_with_SHA384, .sha384WithRSAEncryption => crypto.hash.sha2.Sha384,
-            .ecdsa_with_SHA512, .sha512WithRSAEncryption => crypto.hash.sha2.Sha512,
+            .ecdsa_with_SHA512, .sha512WithRSAEncryption, .curveEd25519 => crypto.hash.sha2.Sha512,
             .md2WithRSAEncryption => @compileError("unimplemented"),
             .md5WithRSAEncryption => crypto.hash.Md5,
         };
@@ -47,11 +49,15 @@ pub const Algorithm = enum {
 
 pub const AlgorithmCategory = enum {
     rsaEncryption,
+    rsassa_pss,
     X9_62_id_ecPublicKey,
+    curveEd25519,
 
-    pub const map = std.ComptimeStringMap(AlgorithmCategory, .{
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01 }, .rsaEncryption },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01 }, .X9_62_id_ecPublicKey },
+    pub const map = std.StaticStringMap(AlgorithmCategory).initComptime(.{
+        .{ &.{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01 }, .rsaEncryption },
+        .{ &.{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0A }, .rsassa_pss },
+        .{ &.{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01 }, .X9_62_id_ecPublicKey },
+        .{ &.{ 0x2B, 0x65, 0x70 }, .curveEd25519 },
     });
 };
 
@@ -69,19 +75,19 @@ pub const Attribute = enum {
     pkcs9_emailAddress,
     domainComponent,
 
-    pub const map = std.ComptimeStringMap(Attribute, .{
-        .{ &[_]u8{ 0x55, 0x04, 0x03 }, .commonName },
-        .{ &[_]u8{ 0x55, 0x04, 0x05 }, .serialNumber },
-        .{ &[_]u8{ 0x55, 0x04, 0x06 }, .countryName },
-        .{ &[_]u8{ 0x55, 0x04, 0x07 }, .localityName },
-        .{ &[_]u8{ 0x55, 0x04, 0x08 }, .stateOrProvinceName },
-        .{ &[_]u8{ 0x55, 0x04, 0x09 }, .streetAddress },
-        .{ &[_]u8{ 0x55, 0x04, 0x0A }, .organizationName },
-        .{ &[_]u8{ 0x55, 0x04, 0x0B }, .organizationalUnitName },
-        .{ &[_]u8{ 0x55, 0x04, 0x11 }, .postalCode },
-        .{ &[_]u8{ 0x55, 0x04, 0x61 }, .organizationIdentifier },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x01 }, .pkcs9_emailAddress },
-        .{ &[_]u8{ 0x09, 0x92, 0x26, 0x89, 0x93, 0xF2, 0x2C, 0x64, 0x01, 0x19 }, .domainComponent },
+    pub const map = std.StaticStringMap(Attribute).initComptime(.{
+        .{ &.{ 0x55, 0x04, 0x03 }, .commonName },
+        .{ &.{ 0x55, 0x04, 0x05 }, .serialNumber },
+        .{ &.{ 0x55, 0x04, 0x06 }, .countryName },
+        .{ &.{ 0x55, 0x04, 0x07 }, .localityName },
+        .{ &.{ 0x55, 0x04, 0x08 }, .stateOrProvinceName },
+        .{ &.{ 0x55, 0x04, 0x09 }, .streetAddress },
+        .{ &.{ 0x55, 0x04, 0x0A }, .organizationName },
+        .{ &.{ 0x55, 0x04, 0x0B }, .organizationalUnitName },
+        .{ &.{ 0x55, 0x04, 0x11 }, .postalCode },
+        .{ &.{ 0x55, 0x04, 0x61 }, .organizationIdentifier },
+        .{ &.{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x01 }, .pkcs9_emailAddress },
+        .{ &.{ 0x09, 0x92, 0x26, 0x89, 0x93, 0xF2, 0x2C, 0x64, 0x01, 0x19 }, .domainComponent },
     });
 };
 
@@ -90,10 +96,10 @@ pub const NamedCurve = enum {
     secp521r1,
     X9_62_prime256v1,
 
-    pub const map = std.ComptimeStringMap(NamedCurve, .{
-        .{ &[_]u8{ 0x2B, 0x81, 0x04, 0x00, 0x22 }, .secp384r1 },
-        .{ &[_]u8{ 0x2B, 0x81, 0x04, 0x00, 0x23 }, .secp521r1 },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07 }, .X9_62_prime256v1 },
+    pub const map = std.StaticStringMap(NamedCurve).initComptime(.{
+        .{ &.{ 0x2B, 0x81, 0x04, 0x00, 0x22 }, .secp384r1 },
+        .{ &.{ 0x2B, 0x81, 0x04, 0x00, 0x23 }, .secp521r1 },
+        .{ &.{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07 }, .X9_62_prime256v1 },
     });
 
     pub fn Curve(comptime curve: NamedCurve) type {
@@ -126,29 +132,29 @@ pub const ExtensionId = enum {
     netscape_cert_type,
     netscape_comment,
 
-    pub const map = std.ComptimeStringMap(ExtensionId, .{
-        .{ &[_]u8{ 0x55, 0x04, 0x03 }, .commonName },
-        .{ &[_]u8{ 0x55, 0x1D, 0x01 }, .authority_key_identifier },
-        .{ &[_]u8{ 0x55, 0x1D, 0x07 }, .subject_alt_name },
-        .{ &[_]u8{ 0x55, 0x1D, 0x0E }, .subject_key_identifier },
-        .{ &[_]u8{ 0x55, 0x1D, 0x0F }, .key_usage },
-        .{ &[_]u8{ 0x55, 0x1D, 0x0A }, .basic_constraints },
-        .{ &[_]u8{ 0x55, 0x1D, 0x10 }, .private_key_usage_period },
-        .{ &[_]u8{ 0x55, 0x1D, 0x11 }, .subject_alt_name },
-        .{ &[_]u8{ 0x55, 0x1D, 0x12 }, .issuer_alt_name },
-        .{ &[_]u8{ 0x55, 0x1D, 0x13 }, .basic_constraints },
-        .{ &[_]u8{ 0x55, 0x1D, 0x14 }, .crl_number },
-        .{ &[_]u8{ 0x55, 0x1D, 0x1F }, .crl_distribution_points },
-        .{ &[_]u8{ 0x55, 0x1D, 0x20 }, .certificate_policies },
-        .{ &[_]u8{ 0x55, 0x1D, 0x23 }, .authority_key_identifier },
-        .{ &[_]u8{ 0x55, 0x1D, 0x25 }, .ext_key_usage },
-        .{ &[_]u8{ 0x2B, 0x06, 0x01, 0x04, 0x01, 0x82, 0x37, 0x15, 0x01 }, .msCertsrvCAVersion },
-        .{ &[_]u8{ 0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x01, 0x01 }, .info_access },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF6, 0x7D, 0x07, 0x41, 0x00 }, .entrustVersInfo },
-        .{ &[_]u8{ 0x2b, 0x06, 0x01, 0x04, 0x01, 0x82, 0x37, 0x14, 0x02 }, .enroll_certtype },
-        .{ &[_]u8{ 0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x01, 0x0c }, .pe_logotype },
-        .{ &[_]u8{ 0x60, 0x86, 0x48, 0x01, 0x86, 0xf8, 0x42, 0x01, 0x01 }, .netscape_cert_type },
-        .{ &[_]u8{ 0x60, 0x86, 0x48, 0x01, 0x86, 0xf8, 0x42, 0x01, 0x0d }, .netscape_comment },
+    pub const map = std.StaticStringMap(ExtensionId).initComptime(.{
+        .{ &.{ 0x55, 0x04, 0x03 }, .commonName },
+        .{ &.{ 0x55, 0x1D, 0x01 }, .authority_key_identifier },
+        .{ &.{ 0x55, 0x1D, 0x07 }, .subject_alt_name },
+        .{ &.{ 0x55, 0x1D, 0x0E }, .subject_key_identifier },
+        .{ &.{ 0x55, 0x1D, 0x0F }, .key_usage },
+        .{ &.{ 0x55, 0x1D, 0x0A }, .basic_constraints },
+        .{ &.{ 0x55, 0x1D, 0x10 }, .private_key_usage_period },
+        .{ &.{ 0x55, 0x1D, 0x11 }, .subject_alt_name },
+        .{ &.{ 0x55, 0x1D, 0x12 }, .issuer_alt_name },
+        .{ &.{ 0x55, 0x1D, 0x13 }, .basic_constraints },
+        .{ &.{ 0x55, 0x1D, 0x14 }, .crl_number },
+        .{ &.{ 0x55, 0x1D, 0x1F }, .crl_distribution_points },
+        .{ &.{ 0x55, 0x1D, 0x20 }, .certificate_policies },
+        .{ &.{ 0x55, 0x1D, 0x23 }, .authority_key_identifier },
+        .{ &.{ 0x55, 0x1D, 0x25 }, .ext_key_usage },
+        .{ &.{ 0x2B, 0x06, 0x01, 0x04, 0x01, 0x82, 0x37, 0x15, 0x01 }, .msCertsrvCAVersion },
+        .{ &.{ 0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x01, 0x01 }, .info_access },
+        .{ &.{ 0x2A, 0x86, 0x48, 0x86, 0xF6, 0x7D, 0x07, 0x41, 0x00 }, .entrustVersInfo },
+        .{ &.{ 0x2b, 0x06, 0x01, 0x04, 0x01, 0x82, 0x37, 0x14, 0x02 }, .enroll_certtype },
+        .{ &.{ 0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x01, 0x0c }, .pe_logotype },
+        .{ &.{ 0x60, 0x86, 0x48, 0x01, 0x86, 0xf8, 0x42, 0x01, 0x01 }, .netscape_cert_type },
+        .{ &.{ 0x60, 0x86, 0x48, 0x01, 0x86, 0xf8, 0x42, 0x01, 0x0d }, .netscape_comment },
     });
 };
 
@@ -181,7 +187,9 @@ pub const Parsed = struct {
 
     pub const PubKeyAlgo = union(AlgorithmCategory) {
         rsaEncryption: void,
+        rsassa_pss: void,
         X9_62_id_ecPublicKey: NamedCurve,
+        curveEd25519: void,
     };
 
     pub const Validity = struct {
@@ -287,6 +295,13 @@ pub const Parsed = struct {
             .md2WithRSAEncryption, .md5WithRSAEncryption => {
                 return error.CertificateSignatureAlgorithmUnsupported;
             },
+
+            .curveEd25519 => return verifyEd25519(
+                parsed_subject.message(),
+                parsed_subject.signature(),
+                parsed_issuer.pub_key_algo,
+                parsed_issuer.pubKey(),
+            ),
         }
     }
 
@@ -312,7 +327,7 @@ pub const Parsed = struct {
         while (name_i < general_names.slice.end) {
             const general_name = try der.Element.parse(subject_alt_name, name_i);
             name_i = general_name.slice.end;
-            switch (@intToEnum(GeneralNameTag, @enumToInt(general_name.identifier.tag))) {
+            switch (@as(GeneralNameTag, @enumFromInt(@intFromEnum(general_name.identifier.tag)))) {
                 .dNSName => {
                     const dns_name = subject_alt_name[general_name.slice.start..general_name.slice.end];
                     if (checkHostName(host_name, dns_name)) return;
@@ -333,12 +348,12 @@ pub const Parsed = struct {
     // component or component fragment. E.g., *.a.com matches foo.a.com but
     // not bar.foo.a.com. f*.com matches foo.com but not bar.com.
     fn checkHostName(host_name: []const u8, dns_name: []const u8) bool {
-        if (mem.eql(u8, dns_name, host_name)) {
+        if (std.ascii.eqlIgnoreCase(dns_name, host_name)) {
             return true; // exact match
         }
 
-        var it_host = std.mem.split(u8, host_name, ".");
-        var it_dns = std.mem.split(u8, dns_name, ".");
+        var it_host = std.mem.splitScalar(u8, host_name, '.');
+        var it_dns = std.mem.splitScalar(u8, dns_name, '.');
 
         const len_match = while (true) {
             const host = it_host.next();
@@ -350,7 +365,7 @@ pub const Parsed = struct {
 
             // If not a wildcard and they dont
             // match then there is no match.
-            if (mem.eql(u8, dns.?, "*") == false and mem.eql(u8, dns.?, host.?) == false) {
+            if (mem.eql(u8, dns.?, "*") == false and std.ascii.eqlIgnoreCase(dns.?, host.?) == false) {
                 return false;
             }
         };
@@ -369,9 +384,12 @@ test "Parsed.checkHostName" {
     try expectEqual(false, Parsed.checkHostName("foo.bar.ziglang.org", "*.ziglang.org"));
     try expectEqual(false, Parsed.checkHostName("ziglang.org", "zig*.org"));
     try expectEqual(false, Parsed.checkHostName("lang.org", "zig*.org"));
+    // host name check should be case insensitive
+    try expectEqual(true, Parsed.checkHostName("ziglang.org", "Ziglang.org"));
+    try expectEqual(true, Parsed.checkHostName("bar.ziglang.org", "*.Ziglang.ORG"));
 }
 
-pub const ParseError = der.Element.ParseElementError || ParseVersionError || ParseTimeError || ParseEnumError || ParseBitStringError;
+pub const ParseError = der.Element.ParseError || ParseVersionError || ParseTimeError || ParseEnumError || ParseBitStringError;
 
 pub fn parse(cert: Certificate) ParseError!Parsed {
     const cert_bytes = cert.buffer;
@@ -379,7 +397,7 @@ pub fn parse(cert: Certificate) ParseError!Parsed {
     const tbs_certificate = try der.Element.parse(cert_bytes, certificate.slice.start);
     const version_elem = try der.Element.parse(cert_bytes, tbs_certificate.slice.start);
     const version = try parseVersion(cert_bytes, version_elem);
-    const serial_number = if (@bitCast(u8, version_elem.identifier) == 0xa0)
+    const serial_number = if (@as(u8, @bitCast(version_elem.identifier)) == 0xa0)
         try der.Element.parse(cert_bytes, version_elem.slice.end)
     else
         version_elem;
@@ -398,13 +416,9 @@ pub fn parse(cert: Certificate) ParseError!Parsed {
     const pub_key_info = try der.Element.parse(cert_bytes, subject.slice.end);
     const pub_key_signature_algorithm = try der.Element.parse(cert_bytes, pub_key_info.slice.start);
     const pub_key_algo_elem = try der.Element.parse(cert_bytes, pub_key_signature_algorithm.slice.start);
-    const pub_key_algo_tag = try parseAlgorithmCategory(cert_bytes, pub_key_algo_elem);
-    var pub_key_algo: Parsed.PubKeyAlgo = undefined;
-    switch (pub_key_algo_tag) {
-        .rsaEncryption => {
-            pub_key_algo = .{ .rsaEncryption = {} };
-        },
-        .X9_62_id_ecPublicKey => {
+    const pub_key_algo: Parsed.PubKeyAlgo = switch (try parseAlgorithmCategory(cert_bytes, pub_key_algo_elem)) {
+        inline else => |tag| @unionInit(Parsed.PubKeyAlgo, @tagName(tag), {}),
+        .X9_62_id_ecPublicKey => pub_key_algo: {
             // RFC 5480 Section 2.1.1.1 Named Curve
             // ECParameters ::= CHOICE {
             //   namedCurve         OBJECT IDENTIFIER
@@ -413,9 +427,9 @@ pub fn parse(cert: Certificate) ParseError!Parsed {
             // }
             const params_elem = try der.Element.parse(cert_bytes, pub_key_algo_elem.slice.end);
             const named_curve = try parseNamedCurve(cert_bytes, params_elem);
-            pub_key_algo = .{ .X9_62_id_ecPublicKey = named_curve };
+            break :pub_key_algo .{ .X9_62_id_ecPublicKey = named_curve };
         },
-    }
+    };
     const pub_key_elem = try der.Element.parse(cert_bytes, pub_key_signature_algorithm.slice.end);
     const pub_key = try parseBitString(cert, pub_key_elem);
 
@@ -538,12 +552,12 @@ pub fn parseTime(cert: Certificate, elem: der.Element) ParseTimeError!u64 {
                 return error.CertificateTimeInvalid;
 
             return Date.toSeconds(.{
-                .year = @as(u16, 2000) + try parseTimeDigits(bytes[0..2].*, 0, 99),
-                .month = try parseTimeDigits(bytes[2..4].*, 1, 12),
-                .day = try parseTimeDigits(bytes[4..6].*, 1, 31),
-                .hour = try parseTimeDigits(bytes[6..8].*, 0, 23),
-                .minute = try parseTimeDigits(bytes[8..10].*, 0, 59),
-                .second = try parseTimeDigits(bytes[10..12].*, 0, 59),
+                .year = @as(u16, 2000) + try parseTimeDigits(bytes[0..2], 0, 99),
+                .month = try parseTimeDigits(bytes[2..4], 1, 12),
+                .day = try parseTimeDigits(bytes[4..6], 1, 31),
+                .hour = try parseTimeDigits(bytes[6..8], 0, 23),
+                .minute = try parseTimeDigits(bytes[8..10], 0, 59),
+                .second = try parseTimeDigits(bytes[10..12], 0, 59),
             });
         },
         .generalized_time => {
@@ -555,11 +569,11 @@ pub fn parseTime(cert: Certificate, elem: der.Element) ParseTimeError!u64 {
                 return error.CertificateTimeInvalid;
             return Date.toSeconds(.{
                 .year = try parseYear4(bytes[0..4]),
-                .month = try parseTimeDigits(bytes[4..6].*, 1, 12),
-                .day = try parseTimeDigits(bytes[6..8].*, 1, 31),
-                .hour = try parseTimeDigits(bytes[8..10].*, 0, 23),
-                .minute = try parseTimeDigits(bytes[10..12].*, 0, 59),
-                .second = try parseTimeDigits(bytes[12..14].*, 0, 59),
+                .month = try parseTimeDigits(bytes[4..6], 1, 12),
+                .day = try parseTimeDigits(bytes[6..8], 1, 31),
+                .hour = try parseTimeDigits(bytes[8..10], 0, 23),
+                .minute = try parseTimeDigits(bytes[10..12], 0, 59),
+                .second = try parseTimeDigits(bytes[12..14], 0, 59),
             });
         },
         else => return error.CertificateFieldHasWrongDataType,
@@ -597,8 +611,8 @@ const Date = struct {
             var month: u4 = 1;
             while (month < date.month) : (month += 1) {
                 const days: u64 = std.time.epoch.getDaysInMonth(
-                    @intToEnum(std.time.epoch.YearLeapKind, @boolToInt(is_leap)),
-                    @intToEnum(std.time.epoch.Month, month),
+                    @as(std.time.epoch.YearLeapKind, @enumFromInt(@intFromBool(is_leap))),
+                    @as(std.time.epoch.Month, @enumFromInt(month)),
                 );
                 sec += days * std.time.epoch.secs_per_day;
             }
@@ -613,33 +627,39 @@ const Date = struct {
     }
 };
 
-pub fn parseTimeDigits(nn: @Vector(2, u8), min: u8, max: u8) !u8 {
-    const zero: @Vector(2, u8) = .{ '0', '0' };
-    const mm: @Vector(2, u8) = .{ 10, 1 };
-    const result = @reduce(.Add, (nn -% zero) *% mm);
+pub fn parseTimeDigits(text: *const [2]u8, min: u8, max: u8) !u8 {
+    const result = if (use_vectors) result: {
+        const nn: @Vector(2, u16) = .{ text[0], text[1] };
+        const zero: @Vector(2, u16) = .{ '0', '0' };
+        const mm: @Vector(2, u16) = .{ 10, 1 };
+        break :result @reduce(.Add, (nn -% zero) *% mm);
+    } else std.fmt.parseInt(u8, text, 10) catch return error.CertificateTimeInvalid;
     if (result < min) return error.CertificateTimeInvalid;
     if (result > max) return error.CertificateTimeInvalid;
-    return result;
+    return @truncate(result);
 }
 
 test parseTimeDigits {
     const expectEqual = std.testing.expectEqual;
-    try expectEqual(@as(u8, 0), try parseTimeDigits("00".*, 0, 99));
-    try expectEqual(@as(u8, 99), try parseTimeDigits("99".*, 0, 99));
-    try expectEqual(@as(u8, 42), try parseTimeDigits("42".*, 0, 99));
+    try expectEqual(@as(u8, 0), try parseTimeDigits("00", 0, 99));
+    try expectEqual(@as(u8, 99), try parseTimeDigits("99", 0, 99));
+    try expectEqual(@as(u8, 42), try parseTimeDigits("42", 0, 99));
 
     const expectError = std.testing.expectError;
-    try expectError(error.CertificateTimeInvalid, parseTimeDigits("13".*, 1, 12));
-    try expectError(error.CertificateTimeInvalid, parseTimeDigits("00".*, 1, 12));
+    try expectError(error.CertificateTimeInvalid, parseTimeDigits("13", 1, 12));
+    try expectError(error.CertificateTimeInvalid, parseTimeDigits("00", 1, 12));
+    try expectError(error.CertificateTimeInvalid, parseTimeDigits("Di", 0, 99));
 }
 
 pub fn parseYear4(text: *const [4]u8) !u16 {
-    const nnnn: @Vector(4, u16) = .{ text[0], text[1], text[2], text[3] };
-    const zero: @Vector(4, u16) = .{ '0', '0', '0', '0' };
-    const mmmm: @Vector(4, u16) = .{ 1000, 100, 10, 1 };
-    const result = @reduce(.Add, (nnnn -% zero) *% mmmm);
+    const result = if (use_vectors) result: {
+        const nnnn: @Vector(4, u32) = .{ text[0], text[1], text[2], text[3] };
+        const zero: @Vector(4, u32) = .{ '0', '0', '0', '0' };
+        const mmmm: @Vector(4, u32) = .{ 1000, 100, 10, 1 };
+        break :result @reduce(.Add, (nnnn -% zero) *% mmmm);
+    } else std.fmt.parseInt(u16, text, 10) catch return error.CertificateTimeInvalid;
     if (result > 9999) return error.CertificateTimeInvalid;
-    return result;
+    return @truncate(result);
 }
 
 test parseYear4 {
@@ -651,6 +671,7 @@ test parseYear4 {
     const expectError = std.testing.expectError;
     try expectError(error.CertificateTimeInvalid, parseYear4("999b"));
     try expectError(error.CertificateTimeInvalid, parseYear4("crap"));
+    try expectError(error.CertificateTimeInvalid, parseYear4("r:bQ"));
 }
 
 pub fn parseAlgorithm(bytes: []const u8, element: der.Element) ParseEnumError!Algorithm {
@@ -685,7 +706,7 @@ fn parseEnum(comptime E: type, bytes: []const u8, element: der.Element) ParseEnu
 pub const ParseVersionError = error{ UnsupportedCertificateVersion, CertificateFieldHasInvalidLength };
 
 pub fn parseVersion(bytes: []const u8, version_elem: der.Element) ParseVersionError!Version {
-    if (@bitCast(u8, version_elem.identifier) != 0xa0)
+    if (@as(u8, @bitCast(version_elem.identifier)) != 0xa0)
         return .v1;
 
     if (version_elem.slice.end - version_elem.slice.start != 3)
@@ -706,7 +727,7 @@ pub fn parseVersion(bytes: []const u8, version_elem: der.Element) ParseVersionEr
 
 fn verifyRsa(
     comptime Hash: type,
-    message: []const u8,
+    msg: []const u8,
     sig: []const u8,
     pub_key_algo: Parsed.PubKeyAlgo,
     pub_key: []const u8,
@@ -718,70 +739,14 @@ fn verifyRsa(
     if (exponent.len > modulus.len) return error.CertificatePublicKeyInvalid;
     if (sig.len != modulus.len) return error.CertificateSignatureInvalidLength;
 
-    const hash_der = switch (Hash) {
-        crypto.hash.Sha1 => [_]u8{
-            0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e,
-            0x03, 0x02, 0x1a, 0x05, 0x00, 0x04, 0x14,
-        },
-        crypto.hash.sha2.Sha224 => [_]u8{
-            0x30, 0x2d, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86,
-            0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x04, 0x05,
-            0x00, 0x04, 0x1c,
-        },
-        crypto.hash.sha2.Sha256 => [_]u8{
-            0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86,
-            0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05,
-            0x00, 0x04, 0x20,
-        },
-        crypto.hash.sha2.Sha384 => [_]u8{
-            0x30, 0x41, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86,
-            0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02, 0x05,
-            0x00, 0x04, 0x30,
-        },
-        crypto.hash.sha2.Sha512 => [_]u8{
-            0x30, 0x51, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86,
-            0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03, 0x05,
-            0x00, 0x04, 0x40,
-        },
-        else => @compileError("unreachable"),
-    };
-
-    var msg_hashed: [Hash.digest_length]u8 = undefined;
-    Hash.hash(message, &msg_hashed, .{});
-
-    var rsa_mem_buf: [512 * 64]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&rsa_mem_buf);
-    const ally = fba.allocator();
-
     switch (modulus.len) {
-        inline 128, 256, 512 => |modulus_len| {
-            const ps_len = modulus_len - (hash_der.len + msg_hashed.len) - 3;
-            const em: [modulus_len]u8 =
-                [2]u8{ 0, 1 } ++
-                ([1]u8{0xff} ** ps_len) ++
-                [1]u8{0} ++
-                hash_der ++
-                msg_hashed;
-
-            const public_key = rsa.PublicKey.fromBytes(exponent, modulus, ally) catch |err| switch (err) {
-                error.OutOfMemory => unreachable, // rsa_mem_buf is big enough
-            };
-            const em_dec = rsa.encrypt(modulus_len, sig[0..modulus_len].*, public_key, ally) catch |err| switch (err) {
-                error.OutOfMemory => unreachable, // rsa_mem_buf is big enough
-
-                error.MessageTooLong => unreachable,
-                error.NegativeIntoUnsigned => @panic("TODO make RSA not emit this error"),
-                error.TargetTooSmall => @panic("TODO make RSA not emit this error"),
-                error.BufferTooSmall => @panic("TODO make RSA not emit this error"),
-            };
-
-            if (!mem.eql(u8, &em, &em_dec)) {
+        inline 128, 256, 384, 512 => |modulus_len| {
+            const public_key = rsa.PublicKey.fromBytes(exponent, modulus) catch
                 return error.CertificateSignatureInvalid;
-            }
+            rsa.PKCS1v1_5Signature.verify(modulus_len, sig[0..modulus_len].*, msg, public_key, Hash) catch
+                return error.CertificateSignatureInvalid;
         },
-        else => {
-            return error.CertificateSignatureUnsupportedBitCount;
-        },
+        else => return error.CertificateSignatureUnsupportedBitCount,
     }
 }
 
@@ -820,6 +785,29 @@ fn verify_ecdsa(
             };
         },
     }
+}
+
+fn verifyEd25519(
+    message: []const u8,
+    encoded_sig: []const u8,
+    pub_key_algo: Parsed.PubKeyAlgo,
+    encoded_pub_key: []const u8,
+) !void {
+    if (pub_key_algo != .curveEd25519) return error.CertificateSignatureAlgorithmMismatch;
+    const Ed25519 = crypto.sign.Ed25519;
+    if (encoded_sig.len != Ed25519.Signature.encoded_length) return error.CertificateSignatureInvalid;
+    const sig = Ed25519.Signature.fromBytes(encoded_sig[0..Ed25519.Signature.encoded_length].*);
+    if (encoded_pub_key.len != Ed25519.PublicKey.encoded_length) return error.CertificateSignatureInvalid;
+    const pub_key = Ed25519.PublicKey.fromBytes(encoded_pub_key[0..Ed25519.PublicKey.encoded_length].*) catch |err| switch (err) {
+        error.NonCanonical => return error.CertificateSignatureInvalid,
+    };
+    sig.verify(message, pub_key) catch |err| switch (err) {
+        error.IdentityElement => return error.CertificateSignatureInvalid,
+        error.NonCanonical => return error.CertificateSignatureInvalid,
+        error.SignatureVerificationFailed => return error.CertificateSignatureInvalid,
+        error.InvalidEncoding => return error.CertificateSignatureInvalid,
+        error.WeakPublicKey => return error.CertificateSignatureInvalid,
+    };
 }
 
 const std = @import("../std.zig");
@@ -871,11 +859,11 @@ pub const der = struct {
             pub const empty: Slice = .{ .start = 0, .end = 0 };
         };
 
-        pub const ParseElementError = error{CertificateFieldHasInvalidLength};
+        pub const ParseError = error{CertificateFieldHasInvalidLength};
 
-        pub fn parse(bytes: []const u8, index: u32) ParseElementError!Element {
+        pub fn parse(bytes: []const u8, index: u32) Element.ParseError!Element {
             var i = index;
-            const identifier = @bitCast(Identifier, bytes[i]);
+            const identifier = @as(Identifier, @bitCast(bytes[i]));
             i += 1;
             const size_byte = bytes[i];
             i += 1;
@@ -889,7 +877,7 @@ pub const der = struct {
                 };
             }
 
-            const len_size = @truncate(u7, size_byte);
+            const len_size = @as(u7, @truncate(size_byte));
             if (len_size > @sizeOf(u32)) {
                 return error.CertificateFieldHasInvalidLength;
             }
@@ -915,35 +903,53 @@ test {
     _ = Bundle;
 }
 
-/// TODO: replace this with Frank's upcoming RSA implementation. the verify
-/// function won't have the possibility of failure - it will either identify a
-/// valid signature or an invalid signature.
-/// This code is borrowed from https://github.com/shiguredo/tls13-zig
-/// which is licensed under the Apache License Version 2.0, January 2004
-/// http://www.apache.org/licenses/
-/// The code has been modified.
 pub const rsa = struct {
-    const BigInt = std.math.big.int.Managed;
+    const max_modulus_bits = 4096;
+    const Uint = std.crypto.ff.Uint(max_modulus_bits);
+    const Modulus = std.crypto.ff.Modulus(max_modulus_bits);
+    const Fe = Modulus.Fe;
 
+    /// RFC 3447 8.1 RSASSA-PSS
     pub const PSSSignature = struct {
         pub fn fromBytes(comptime modulus_len: usize, msg: []const u8) [modulus_len]u8 {
-            var result = [1]u8{0} ** modulus_len;
-            std.mem.copyForwards(u8, &result, msg);
+            var result: [modulus_len]u8 = undefined;
+            @memcpy(result[0..msg.len], msg);
+            @memset(result[msg.len..], 0);
             return result;
         }
 
-        pub fn verify(comptime modulus_len: usize, sig: [modulus_len]u8, msg: []const u8, public_key: PublicKey, comptime Hash: type, allocator: std.mem.Allocator) !void {
-            const mod_bits = try countBits(public_key.n.toConst(), allocator);
-            const em_dec = try encrypt(modulus_len, sig, public_key, allocator);
+        pub const VerifyError = EncryptError || error{InvalidSignature};
 
-            try EMSA_PSS_VERIFY(msg, &em_dec, mod_bits - 1, Hash.digest_length, Hash, allocator);
+        pub fn verify(
+            comptime modulus_len: usize,
+            sig: [modulus_len]u8,
+            msg: []const u8,
+            public_key: PublicKey,
+            comptime Hash: type,
+        ) VerifyError!void {
+            try concatVerify(modulus_len, sig, &.{msg}, public_key, Hash);
         }
 
-        fn EMSA_PSS_VERIFY(msg: []const u8, em: []const u8, emBit: usize, sLen: usize, comptime Hash: type, allocator: std.mem.Allocator) !void {
-            // TODO
+        pub fn concatVerify(
+            comptime modulus_len: usize,
+            sig: [modulus_len]u8,
+            msg: []const []const u8,
+            public_key: PublicKey,
+            comptime Hash: type,
+        ) VerifyError!void {
+            const mod_bits = public_key.n.bits();
+            const em_dec = try encrypt(modulus_len, sig, public_key);
+
+            try EMSA_PSS_VERIFY(msg, &em_dec, mod_bits - 1, Hash.digest_length, Hash);
+        }
+
+        fn EMSA_PSS_VERIFY(msg: []const []const u8, em: []const u8, emBit: usize, sLen: usize, comptime Hash: type) VerifyError!void {
             // 1.   If the length of M is greater than the input limitation for
             //      the hash function (2^61 - 1 octets for SHA-1), output
             //      "inconsistent" and stop.
+            // All the cryptographic hash functions in the standard library have a limit of >= 2^61 - 1.
+            // Even then, this check is only there for paranoia. In the context of TLS certificates, emBit cannot exceed 4096.
+            if (emBit >= 1 << 61) return error.InvalidSignature;
 
             // emLen = \ceil(emBits/8)
             const emLen = ((emBit - 1) / 8) + 1;
@@ -951,7 +957,11 @@ pub const rsa = struct {
 
             // 2.   Let mHash = Hash(M), an octet string of length hLen.
             var mHash: [Hash.digest_length]u8 = undefined;
-            Hash.hash(msg, &mHash, .{});
+            {
+                var hasher: Hash = .init(.{});
+                for (msg) |part| hasher.update(part);
+                hasher.final(&mHash);
+            }
 
             // 3.   If emLen < hLen + sLen + 2, output "inconsistent" and stop.
             if (emLen < Hash.digest_length + sLen + 2) {
@@ -967,7 +977,7 @@ pub const rsa = struct {
             // 5.   Let maskedDB be the leftmost emLen - hLen - 1 octets of EM,
             //      and let H be the next hLen octets.
             const maskedDB = em[0..(emLen - Hash.digest_length - 1)];
-            const h = em[(emLen - Hash.digest_length - 1)..(emLen - 1)];
+            const h = em[(emLen - Hash.digest_length - 1)..(emLen - 1)][0..Hash.digest_length];
 
             // 6.   If the leftmost 8emLen - emBits bits of the leftmost octet in
             //      maskedDB are not all equal to zero, output "inconsistent" and
@@ -984,9 +994,12 @@ pub const rsa = struct {
 
             // 7.   Let dbMask = MGF(H, emLen - hLen - 1).
             const mgf_len = emLen - Hash.digest_length - 1;
-            var mgf_out = try allocator.alloc(u8, ((mgf_len - 1) / Hash.digest_length + 1) * Hash.digest_length);
-            defer allocator.free(mgf_out);
-            var dbMask = try MGF1(mgf_out, h, mgf_len, Hash, allocator);
+            var mgf_out_buf: [512]u8 = undefined;
+            if (mgf_len > mgf_out_buf.len) { // Modulus > 4096 bits
+                return error.InvalidSignature;
+            }
+            const mgf_out = mgf_out_buf[0 .. ((mgf_len - 1) / Hash.digest_length + 1) * Hash.digest_length];
+            var dbMask = try MGF1(Hash, mgf_out, h, mgf_len);
 
             // 8.   Let DB = maskedDB \xor dbMask.
             i = 0;
@@ -1023,8 +1036,11 @@ pub const rsa = struct {
             //         M' = (0x)00 00 00 00 00 00 00 00 || mHash || salt ;
             //      M' is an octet string of length 8 + hLen + sLen with eight
             //      initial zero octets.
-            var m_p = try allocator.alloc(u8, 8 + Hash.digest_length + sLen);
-            defer allocator.free(m_p);
+            if (sLen > Hash.digest_length) { // A seed larger than the hash length would be useless
+                return error.InvalidSignature;
+            }
+            var m_p_buf: [8 + Hash.digest_length + Hash.digest_length]u8 = undefined;
+            var m_p = m_p_buf[0 .. 8 + Hash.digest_length + sLen];
             std.mem.copyForwards(u8, m_p, &([_]u8{0} ** 8));
             std.mem.copyForwards(u8, m_p[8..], &mHash);
             std.mem.copyForwards(u8, m_p[(8 + Hash.digest_length)..], salt);
@@ -1040,28 +1056,15 @@ pub const rsa = struct {
             }
         }
 
-        fn MGF1(out: []u8, seed: []const u8, len: usize, comptime Hash: type, allocator: std.mem.Allocator) ![]u8 {
-            var counter: usize = 0;
+        fn MGF1(comptime Hash: type, out: []u8, seed: *const [Hash.digest_length]u8, len: usize) ![]u8 {
+            var counter: u32 = 0;
             var idx: usize = 0;
-            var c: [4]u8 = undefined;
-
-            var hash = try allocator.alloc(u8, seed.len + c.len);
-            defer allocator.free(hash);
-            std.mem.copyForwards(u8, hash, seed);
-            var hashed: [Hash.digest_length]u8 = undefined;
+            var hash = seed.* ++ @as([4]u8, undefined);
 
             while (idx < len) {
-                c[0] = @intCast(u8, (counter >> 24) & 0xFF);
-                c[1] = @intCast(u8, (counter >> 16) & 0xFF);
-                c[2] = @intCast(u8, (counter >> 8) & 0xFF);
-                c[3] = @intCast(u8, counter & 0xFF);
-
-                std.mem.copyForwards(u8, hash[seed.len..], &c);
-                Hash.hash(hash, &hashed, .{});
-
-                std.mem.copyForwards(u8, out[idx..], &hashed);
-                idx += hashed.len;
-
+                std.mem.writeInt(u32, hash[seed.len..][0..4], counter, .big);
+                Hash.hash(&hash, out[idx..][0..Hash.digest_length], .{});
+                idx += Hash.digest_length;
                 counter += 1;
             }
 
@@ -1069,23 +1072,145 @@ pub const rsa = struct {
         }
     };
 
-    pub const PublicKey = struct {
-        n: BigInt,
-        e: BigInt,
-
-        pub fn deinit(self: *PublicKey) void {
-            self.n.deinit();
-            self.e.deinit();
+    /// RFC 3447 8.2 RSASSA-PKCS1-v1_5
+    pub const PKCS1v1_5Signature = struct {
+        pub fn fromBytes(comptime modulus_len: usize, msg: []const u8) [modulus_len]u8 {
+            var result: [modulus_len]u8 = undefined;
+            @memcpy(result[0..msg.len], msg);
+            @memset(result[msg.len..], 0);
+            return result;
         }
 
-        pub fn fromBytes(pub_bytes: []const u8, modulus_bytes: []const u8, allocator: std.mem.Allocator) !PublicKey {
-            var _n = try BigInt.init(allocator);
-            errdefer _n.deinit();
-            try setBytes(&_n, modulus_bytes, allocator);
+        pub const VerifyError = EncryptError || error{InvalidSignature};
 
-            var _e = try BigInt.init(allocator);
-            errdefer _e.deinit();
-            try setBytes(&_e, pub_bytes, allocator);
+        pub fn verify(
+            comptime modulus_len: usize,
+            sig: [modulus_len]u8,
+            msg: []const u8,
+            public_key: PublicKey,
+            comptime Hash: type,
+        ) VerifyError!void {
+            try concatVerify(modulus_len, sig, &.{msg}, public_key, Hash);
+        }
+
+        pub fn concatVerify(
+            comptime modulus_len: usize,
+            sig: [modulus_len]u8,
+            msg: []const []const u8,
+            public_key: PublicKey,
+            comptime Hash: type,
+        ) VerifyError!void {
+            const em_dec = try encrypt(modulus_len, sig, public_key);
+            const em = try EMSA_PKCS1_V1_5_ENCODE(msg, modulus_len, Hash);
+            if (!std.mem.eql(u8, &em_dec, &em)) return error.InvalidSignature;
+        }
+
+        fn EMSA_PKCS1_V1_5_ENCODE(msg: []const []const u8, comptime emLen: usize, comptime Hash: type) VerifyError![emLen]u8 {
+            comptime var em_index = emLen;
+            var em: [emLen]u8 = undefined;
+
+            // 1. Apply the hash function to the message M to produce a hash value
+            //    H:
+            //
+            //       H = Hash(M).
+            //
+            //    If the hash function outputs "message too long," output "message
+            //    too long" and stop.
+            var hasher: Hash = .init(.{});
+            for (msg) |part| hasher.update(part);
+            em_index -= Hash.digest_length;
+            hasher.final(em[em_index..]);
+
+            // 2. Encode the algorithm ID for the hash function and the hash value
+            //    into an ASN.1 value of type DigestInfo (see Appendix A.2.4) with
+            //    the Distinguished Encoding Rules (DER), where the type DigestInfo
+            //    has the syntax
+            //
+            //    DigestInfo ::= SEQUENCE {
+            //        digestAlgorithm AlgorithmIdentifier,
+            //        digest OCTET STRING
+            //    }
+            //
+            //    The first field identifies the hash function and the second
+            //    contains the hash value.  Let T be the DER encoding of the
+            //    DigestInfo value (see the notes below) and let tLen be the length
+            //    in octets of T.
+            const hash_der: []const u8 = &switch (Hash) {
+                crypto.hash.Sha1 => .{
+                    0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e,
+                    0x03, 0x02, 0x1a, 0x05, 0x00, 0x04, 0x14,
+                },
+                crypto.hash.sha2.Sha224 => .{
+                    0x30, 0x2d, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86,
+                    0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x04, 0x05,
+                    0x00, 0x04, 0x1c,
+                },
+                crypto.hash.sha2.Sha256 => .{
+                    0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86,
+                    0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05,
+                    0x00, 0x04, 0x20,
+                },
+                crypto.hash.sha2.Sha384 => .{
+                    0x30, 0x41, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86,
+                    0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02, 0x05,
+                    0x00, 0x04, 0x30,
+                },
+                crypto.hash.sha2.Sha512 => .{
+                    0x30, 0x51, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86,
+                    0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03, 0x05,
+                    0x00, 0x04, 0x40,
+                },
+                else => @compileError("unreachable"),
+            };
+            em_index -= hash_der.len;
+            @memcpy(em[em_index..][0..hash_der.len], hash_der);
+
+            // 3. If emLen < tLen + 11, output "intended encoded message length too
+            //    short" and stop.
+
+            // 4. Generate an octet string PS consisting of emLen - tLen - 3 octets
+            //    with hexadecimal value 0xff.  The length of PS will be at least 8
+            //    octets.
+            em_index -= 1;
+            @memset(em[2..em_index], 0xff);
+
+            // 5. Concatenate PS, the DER encoding T, and other padding to form the
+            //    encoded message EM as
+            //
+            //       EM = 0x00 || 0x01 || PS || 0x00 || T.
+            em[em_index] = 0x00;
+            em[1] = 0x01;
+            em[0] = 0x00;
+
+            // 6. Output EM.
+            return em;
+        }
+    };
+
+    pub const PublicKey = struct {
+        n: Modulus,
+        e: Fe,
+
+        pub const FromBytesError = error{CertificatePublicKeyInvalid};
+
+        pub fn fromBytes(pub_bytes: []const u8, modulus_bytes: []const u8) FromBytesError!PublicKey {
+            // Reject modulus below 512 bits.
+            // 512-bit RSA was factored in 1999, so this limit barely means anything,
+            // but establish some limit now to ratchet in what we can.
+            const _n = Modulus.fromBytes(modulus_bytes, .big) catch return error.CertificatePublicKeyInvalid;
+            if (_n.bits() < 512) return error.CertificatePublicKeyInvalid;
+
+            // Exponent must be odd and greater than 2.
+            // Also, it must be less than 2^32 to mitigate DoS attacks.
+            // Windows CryptoAPI doesn't support values larger than 32 bits [1], so it is
+            // unlikely that exponents larger than 32 bits are being used for anything
+            // Windows commonly does.
+            // [1] https://learn.microsoft.com/en-us/windows/win32/api/wincrypt/ns-wincrypt-rsapubkey
+            if (pub_bytes.len > 4) return error.CertificatePublicKeyInvalid;
+            const _e = Fe.fromBytes(_n, pub_bytes, .big) catch return error.CertificatePublicKeyInvalid;
+            if (!_e.isOdd()) return error.CertificatePublicKeyInvalid;
+            const e_v = _e.toPrimitive(u32) catch return error.CertificatePublicKeyInvalid;
+            if (e_v < 2) return error.CertificatePublicKeyInvalid;
 
             return .{
                 .n = _n,
@@ -1093,7 +1218,9 @@ pub const rsa = struct {
             };
         }
 
-        pub fn parseDer(pub_key: []const u8) !struct { modulus: []const u8, exponent: []const u8 } {
+        pub const ParseDerError = der.Element.ParseError || error{CertificateFieldHasWrongDataType};
+
+        pub fn parseDer(pub_key: []const u8) ParseDerError!struct { modulus: []const u8, exponent: []const u8 } {
             const pub_key_seq = try der.Element.parse(pub_key, 0);
             if (pub_key_seq.identifier.tag != .sequence) return error.CertificateFieldHasWrongDataType;
             const modulus_elem = try der.Element.parse(pub_key, pub_key_seq.slice.start);
@@ -1112,113 +1239,15 @@ pub const rsa = struct {
         }
     };
 
-    fn encrypt(comptime modulus_len: usize, msg: [modulus_len]u8, public_key: PublicKey, allocator: std.mem.Allocator) ![modulus_len]u8 {
-        var m = try BigInt.init(allocator);
-        defer m.deinit();
+    const EncryptError = error{MessageTooLong};
 
-        try setBytes(&m, &msg, allocator);
-
-        if (m.order(public_key.n) != .lt) {
-            return error.MessageTooLong;
-        }
-
-        var e = try BigInt.init(allocator);
-        defer e.deinit();
-
-        try pow_montgomery(&e, &m, &public_key.e, &public_key.n, allocator);
-
+    fn encrypt(comptime modulus_len: usize, msg: [modulus_len]u8, public_key: PublicKey) EncryptError![modulus_len]u8 {
+        const m = Fe.fromBytes(public_key.n, &msg, .big) catch return error.MessageTooLong;
+        const e = public_key.n.powPublic(m, public_key.e) catch unreachable;
         var res: [modulus_len]u8 = undefined;
-
-        try toBytes(&res, &e, allocator);
-
+        e.toBytes(&res, .big) catch unreachable;
         return res;
     }
-
-    fn setBytes(r: *BigInt, bytes: []const u8, allocator: std.mem.Allocator) !void {
-        try r.set(0);
-        var tmp = try BigInt.init(allocator);
-        defer tmp.deinit();
-        for (bytes) |b| {
-            try r.shiftLeft(r, 8);
-            try tmp.set(b);
-            try r.add(r, &tmp);
-        }
-    }
-
-    fn pow_montgomery(r: *BigInt, a: *const BigInt, x: *const BigInt, n: *const BigInt, allocator: std.mem.Allocator) !void {
-        var bin_raw: [512]u8 = undefined;
-        try toBytes(&bin_raw, x, allocator);
-
-        var i: usize = 0;
-        while (bin_raw[i] == 0x00) : (i += 1) {}
-        const bin = bin_raw[i..];
-
-        try r.set(1);
-        var r1 = try BigInt.init(allocator);
-        defer r1.deinit();
-        try BigInt.copy(&r1, a.toConst());
-        i = 0;
-        while (i < bin.len * 8) : (i += 1) {
-            if (((bin[i / 8] >> @intCast(u3, (7 - (i % 8)))) & 0x1) == 0) {
-                try BigInt.mul(&r1, r, &r1);
-                try mod(&r1, &r1, n, allocator);
-                try BigInt.sqr(r, r);
-                try mod(r, r, n, allocator);
-            } else {
-                try BigInt.mul(r, r, &r1);
-                try mod(r, r, n, allocator);
-                try BigInt.sqr(&r1, &r1);
-                try mod(&r1, &r1, n, allocator);
-            }
-        }
-    }
-
-    fn toBytes(out: []u8, a: *const BigInt, allocator: std.mem.Allocator) !void {
-        const Error = error{
-            BufferTooSmall,
-        };
-
-        var mask = try BigInt.initSet(allocator, 0xFF);
-        defer mask.deinit();
-        var tmp = try BigInt.init(allocator);
-        defer tmp.deinit();
-
-        var a_copy = try BigInt.init(allocator);
-        defer a_copy.deinit();
-        try a_copy.copy(a.toConst());
-
-        // Encoding into big-endian bytes
-        var i: usize = 0;
-        while (i < out.len) : (i += 1) {
-            try tmp.bitAnd(&a_copy, &mask);
-            const b = try tmp.to(u8);
-            out[out.len - i - 1] = b;
-            try a_copy.shiftRight(&a_copy, 8);
-        }
-
-        if (!a_copy.eqZero()) {
-            return Error.BufferTooSmall;
-        }
-    }
-
-    fn mod(rem: *BigInt, a: *const BigInt, n: *const BigInt, allocator: std.mem.Allocator) !void {
-        var q = try BigInt.init(allocator);
-        defer q.deinit();
-
-        try BigInt.divFloor(&q, rem, a, n);
-    }
-
-    fn countBits(a: std.math.big.int.Const, allocator: std.mem.Allocator) !usize {
-        var i: usize = 0;
-        var a_copy = try BigInt.init(allocator);
-        defer a_copy.deinit();
-        try a_copy.copy(a);
-
-        while (!a_copy.eqZero()) {
-            try a_copy.shiftRight(&a_copy, 1);
-            i += 1;
-        }
-
-        return i;
-    }
 };
+
+const use_vectors = @import("builtin").zig_backend != .stage2_x86_64;

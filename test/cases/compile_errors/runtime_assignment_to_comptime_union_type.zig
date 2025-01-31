@@ -4,13 +4,14 @@ const Foo = union {
 };
 export fn f() void {
     var x: u8 = 0;
-    const foo = Foo { .Bar = x };
+    _ = &x;
+    const foo = Foo{ .Bar = x };
     _ = foo;
 }
 
 // error
-// backend=stage2
-// target=native
 //
-// :7:30: error: unable to resolve comptime value
-// :7:30: note: initializer of comptime only union must be comptime-known
+// :8:23: error: unable to resolve comptime value
+// :8:23: note: initializer of comptime-only union 'tmp.Foo' must be comptime-known
+// :3:10: note: union requires comptime because of this field
+// :3:10: note: types are not available at runtime

@@ -2,6 +2,7 @@
 //! This file includes all ARM-only functions.
 const std = @import("std");
 const builtin = @import("builtin");
+const target = builtin.target;
 const arch = builtin.cpu.arch;
 const common = @import("common.zig");
 
@@ -9,39 +10,40 @@ pub const panic = common.panic;
 
 comptime {
     if (!builtin.is_test) {
-        if (arch.isARM() or arch.isThumb()) {
-            @export(__aeabi_unwind_cpp_pr0, .{ .name = "__aeabi_unwind_cpp_pr0", .linkage = common.linkage, .visibility = common.visibility });
-            @export(__aeabi_unwind_cpp_pr1, .{ .name = "__aeabi_unwind_cpp_pr1", .linkage = common.linkage, .visibility = common.visibility });
-            @export(__aeabi_unwind_cpp_pr2, .{ .name = "__aeabi_unwind_cpp_pr2", .linkage = common.linkage, .visibility = common.visibility });
+        if (arch.isArm()) {
+            @export(&__aeabi_unwind_cpp_pr0, .{ .name = "__aeabi_unwind_cpp_pr0", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_unwind_cpp_pr1, .{ .name = "__aeabi_unwind_cpp_pr1", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_unwind_cpp_pr2, .{ .name = "__aeabi_unwind_cpp_pr2", .linkage = common.linkage, .visibility = common.visibility });
 
-            @export(__aeabi_ldivmod, .{ .name = "__aeabi_ldivmod", .linkage = common.linkage, .visibility = common.visibility });
-            @export(__aeabi_uldivmod, .{ .name = "__aeabi_uldivmod", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_ldivmod, .{ .name = if (common.want_windows_arm_abi) "__rt_sdiv64" else "__aeabi_ldivmod", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_uldivmod, .{ .name = if (common.want_windows_arm_abi) "__rt_udiv64" else "__aeabi_uldivmod", .linkage = common.linkage, .visibility = common.visibility });
 
-            @export(__aeabi_idivmod, .{ .name = "__aeabi_idivmod", .linkage = common.linkage, .visibility = common.visibility });
-            @export(__aeabi_uidivmod, .{ .name = "__aeabi_uidivmod", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_idivmod, .{ .name = if (common.want_windows_arm_abi) "__rt_sdiv" else "__aeabi_idivmod", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_uidivmod, .{ .name = if (common.want_windows_arm_abi) "__rt_udiv" else "__aeabi_uidivmod", .linkage = common.linkage, .visibility = common.visibility });
 
-            @export(__aeabi_memcpy, .{ .name = "__aeabi_memcpy", .linkage = common.linkage, .visibility = common.visibility });
-            @export(__aeabi_memcpy4, .{ .name = "__aeabi_memcpy4", .linkage = common.linkage, .visibility = common.visibility });
-            @export(__aeabi_memcpy8, .{ .name = "__aeabi_memcpy8", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_memcpy, .{ .name = "__aeabi_memcpy", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_memcpy4, .{ .name = "__aeabi_memcpy4", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_memcpy8, .{ .name = "__aeabi_memcpy8", .linkage = common.linkage, .visibility = common.visibility });
 
-            @export(__aeabi_memmove, .{ .name = "__aeabi_memmove", .linkage = common.linkage, .visibility = common.visibility });
-            @export(__aeabi_memmove4, .{ .name = "__aeabi_memmove4", .linkage = common.linkage, .visibility = common.visibility });
-            @export(__aeabi_memmove8, .{ .name = "__aeabi_memmove8", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_memmove, .{ .name = "__aeabi_memmove", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_memmove4, .{ .name = "__aeabi_memmove4", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_memmove8, .{ .name = "__aeabi_memmove8", .linkage = common.linkage, .visibility = common.visibility });
 
-            @export(__aeabi_memset, .{ .name = "__aeabi_memset", .linkage = common.linkage, .visibility = common.visibility });
-            @export(__aeabi_memset4, .{ .name = "__aeabi_memset4", .linkage = common.linkage, .visibility = common.visibility });
-            @export(__aeabi_memset8, .{ .name = "__aeabi_memset8", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_memset, .{ .name = "__aeabi_memset", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_memset4, .{ .name = "__aeabi_memset4", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_memset8, .{ .name = "__aeabi_memset8", .linkage = common.linkage, .visibility = common.visibility });
 
-            @export(__aeabi_memclr, .{ .name = "__aeabi_memclr", .linkage = common.linkage, .visibility = common.visibility });
-            @export(__aeabi_memclr4, .{ .name = "__aeabi_memclr4", .linkage = common.linkage, .visibility = common.visibility });
-            @export(__aeabi_memclr8, .{ .name = "__aeabi_memclr8", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_memclr, .{ .name = "__aeabi_memclr", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_memclr4, .{ .name = "__aeabi_memclr4", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_memclr8, .{ .name = "__aeabi_memclr8", .linkage = common.linkage, .visibility = common.visibility });
 
             if (builtin.os.tag == .linux) {
-                @export(__aeabi_read_tp, .{ .name = "__aeabi_read_tp", .linkage = common.linkage, .visibility = common.visibility });
+                @export(&__aeabi_read_tp, .{ .name = "__aeabi_read_tp", .linkage = common.linkage, .visibility = common.visibility });
             }
 
-            // floating-point helper functions (double-precision reverse subtraction, y – x), see subdf3.zig
-            @export(__aeabi_drsub, .{ .name = "__aeabi_drsub", .linkage = common.linkage, .visibility = common.visibility });
+            // floating-point helper functions (single+double-precision reverse subtraction, y – x), see subdf3.zig
+            @export(&__aeabi_frsub, .{ .name = "__aeabi_frsub", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_drsub, .{ .name = "__aeabi_drsub", .linkage = common.linkage, .visibility = common.visibility });
         }
     }
 }
@@ -51,7 +53,7 @@ const __udivmodsi4 = @import("int.zig").__udivmodsi4;
 const __divmoddi4 = @import("int.zig").__divmoddi4;
 const __udivmoddi4 = @import("int.zig").__udivmoddi4;
 
-extern fn memset(dest: ?[*]u8, c: u8, n: usize) ?[*]u8;
+extern fn memset(dest: ?[*]u8, c: i32, n: usize) ?[*]u8;
 extern fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize) ?[*]u8;
 extern fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) ?[*]u8;
 
@@ -81,17 +83,17 @@ pub fn __aeabi_memmove8(dest: [*]u8, src: [*]u8, n: usize) callconv(.AAPCS) void
     _ = memmove(dest, src, n);
 }
 
-pub fn __aeabi_memset(dest: [*]u8, n: usize, c: u8) callconv(.AAPCS) void {
+pub fn __aeabi_memset(dest: [*]u8, n: usize, c: i32) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
     // This is dentical to the standard `memset` definition but with the last
     // two arguments swapped
     _ = memset(dest, c, n);
 }
-pub fn __aeabi_memset4(dest: [*]u8, n: usize, c: u8) callconv(.AAPCS) void {
+pub fn __aeabi_memset4(dest: [*]u8, n: usize, c: i32) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
     _ = memset(dest, c, n);
 }
-pub fn __aeabi_memset8(dest: [*]u8, n: usize, c: u8) callconv(.AAPCS) void {
+pub fn __aeabi_memset8(dest: [*]u8, n: usize, c: i32) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
     _ = memset(dest, c, n);
 }
@@ -134,11 +136,14 @@ pub fn __aeabi_uidivmod() callconv(.Naked) void {
         \\ push {lr}
         \\ sub sp, #4
         \\ mov r2, sp
-        \\ bl  __udivmodsi4
+        \\ bl  %[__udivmodsi4]
         \\ ldr r1, [sp]
         \\ add sp, #4
         \\ pop {pc}
-        ::: "memory");
+        :
+        : [__udivmodsi4] "X" (&__udivmodsi4),
+        : "memory"
+    );
     unreachable;
 }
 
@@ -150,12 +155,15 @@ pub fn __aeabi_uldivmod() callconv(.Naked) void {
         \\ sub sp, #16
         \\ add r4, sp, #8
         \\ str r4, [sp]
-        \\ bl  __udivmoddi4
+        \\ bl  %[__udivmoddi4]
         \\ ldr r2, [sp, #8]
         \\ ldr r3, [sp, #12]
         \\ add sp, #16
         \\ pop {r4, pc}
-        ::: "memory");
+        :
+        : [__udivmoddi4] "X" (&__udivmoddi4),
+        : "memory"
+    );
     unreachable;
 }
 
@@ -166,11 +174,14 @@ pub fn __aeabi_idivmod() callconv(.Naked) void {
         \\ push {lr}
         \\ sub sp, #4
         \\ mov r2, sp
-        \\ bl  __divmodsi4
+        \\ bl  %[__divmodsi4]
         \\ ldr r1, [sp]
         \\ add sp, #4
         \\ pop {pc}
-        ::: "memory");
+        :
+        : [__divmodsi4] "X" (&__divmodsi4),
+        : "memory"
+    );
     unreachable;
 }
 
@@ -182,16 +193,79 @@ pub fn __aeabi_ldivmod() callconv(.Naked) void {
         \\ sub sp, #16
         \\ add r4, sp, #8
         \\ str r4, [sp]
-        \\ bl  __divmoddi4
+        \\ bl  %[__divmoddi4]
         \\ ldr r2, [sp, #8]
         \\ ldr r3, [sp, #12]
         \\ add sp, #16
         \\ pop {r4, pc}
-        ::: "memory");
+        :
+        : [__divmoddi4] "X" (&__divmoddi4),
+        : "memory"
+    );
     unreachable;
 }
 
-pub fn __aeabi_drsub(a: f64, b: f64) callconv(.AAPCS) f64 {
-    const neg_a = @bitCast(f64, @bitCast(u64, a) ^ (@as(u64, 1) << 63));
+// Float Arithmetic
+
+fn __aeabi_frsub(a: f32, b: f32) callconv(.AAPCS) f32 {
+    const neg_a: f32 = @bitCast(@as(u32, @bitCast(a)) ^ (@as(u32, 1) << 31));
     return b + neg_a;
+}
+
+fn __aeabi_drsub(a: f64, b: f64) callconv(.AAPCS) f64 {
+    const neg_a: f64 = @bitCast(@as(u64, @bitCast(a)) ^ (@as(u64, 1) << 63));
+    return b + neg_a;
+}
+
+test "__aeabi_frsub" {
+    if (!builtin.cpu.arch.isArm() or builtin.cpu.arch.isThumb()) return error.SkipZigTest;
+    const inf32 = std.math.inf(f32);
+    const maxf32 = std.math.floatMax(f32);
+    const frsub_data = [_][3]f32{
+        [_]f32{ 0.0, 0.0, -0.0 },
+        [_]f32{ 0.0, -0.0, -0.0 },
+        [_]f32{ -0.0, 0.0, 0.0 },
+        [_]f32{ -0.0, -0.0, -0.0 },
+        [_]f32{ 0.0, 1.0, 1.0 },
+        [_]f32{ 1.0, 0.0, -1.0 },
+        [_]f32{ 1.0, 1.0, 0.0 },
+        [_]f32{ 1234.56789, 9876.54321, 8641.97532 },
+        [_]f32{ 9876.54321, 1234.56789, -8641.97532 },
+        [_]f32{ -8641.97532, 1234.56789, 9876.54321 },
+        [_]f32{ 8641.97532, 9876.54321, 1234.56789 },
+        [_]f32{ -maxf32, -maxf32, 0.0 },
+        [_]f32{ maxf32, maxf32, 0.0 },
+        [_]f32{ maxf32, -maxf32, -inf32 },
+        [_]f32{ -maxf32, maxf32, inf32 },
+    };
+    for (frsub_data) |data| {
+        try std.testing.expectApproxEqAbs(data[2], __aeabi_frsub(data[0], data[1]), 0.001);
+    }
+}
+
+test "__aeabi_drsub" {
+    if (!builtin.cpu.arch.isArm() or builtin.cpu.arch.isThumb()) return error.SkipZigTest;
+    if (builtin.cpu.arch == .armeb and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/22061
+    const inf64 = std.math.inf(f64);
+    const maxf64 = std.math.floatMax(f64);
+    const frsub_data = [_][3]f64{
+        [_]f64{ 0.0, 0.0, -0.0 },
+        [_]f64{ 0.0, -0.0, -0.0 },
+        [_]f64{ -0.0, 0.0, 0.0 },
+        [_]f64{ -0.0, -0.0, -0.0 },
+        [_]f64{ 0.0, 1.0, 1.0 },
+        [_]f64{ 1.0, 0.0, -1.0 },
+        [_]f64{ 1.0, 1.0, 0.0 },
+        [_]f64{ 1234.56789, 9876.54321, 8641.97532 },
+        [_]f64{ 9876.54321, 1234.56789, -8641.97532 },
+        [_]f64{ -8641.97532, 1234.56789, 9876.54321 },
+        [_]f64{ 8641.97532, 9876.54321, 1234.56789 },
+        [_]f64{ -maxf64, -maxf64, 0.0 },
+        [_]f64{ maxf64, maxf64, 0.0 },
+        [_]f64{ maxf64, -maxf64, -inf64 },
+        [_]f64{ -maxf64, maxf64, inf64 },
+    };
+    for (frsub_data) |data| {
+        try std.testing.expectApproxEqAbs(data[2], __aeabi_drsub(data[0], data[1]), 0.000001);
+    }
 }

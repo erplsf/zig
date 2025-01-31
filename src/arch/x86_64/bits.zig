@@ -4,10 +4,6 @@ const expect = std.testing.expect;
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
-const DW = std.dwarf;
-
-pub const StringRepeat = enum(u3) { none, rep, repe, repz, repne, repnz };
-pub const StringWidth = enum(u2) { b, w, d, q };
 
 /// EFLAGS condition codes
 pub const Condition = enum(u5) {
@@ -71,6 +67,12 @@ pub const Condition = enum(u5) {
     s,
     /// zero
     z,
+
+    // Pseudo conditions
+    /// zero and not parity
+    z_and_np,
+    /// not zero or parity
+    nz_or_p,
 
     /// Converts a std.math.CompareOperator into a condition flag,
     /// i.e. returns the condition that is true iff the result of the
@@ -143,11 +145,203 @@ pub const Condition = enum(u5) {
             .po => .pe,
             .s => .ns,
             .z => .nz,
+
+            .z_and_np => .nz_or_p,
+            .nz_or_p => .z_and_np,
+        };
+    }
+
+    /// Returns the equivalent condition when the operands are swapped.
+    pub fn commute(cond: Condition) Condition {
+        return switch (cond) {
+            else => cond,
+            .a => .b,
+            .ae => .be,
+            .b => .a,
+            .be => .ae,
+            .g => .l,
+            .ge => .le,
+            .l => .g,
+            .le => .ge,
+            .na => .nb,
+            .nae => .nbe,
+            .nb => .na,
+            .nbe => .nae,
+            .ng => .nl,
+            .nge => .nle,
+            .nl => .ng,
+            .nle => .nge,
         };
     }
 };
 
-pub const Register = enum(u7) {
+/// The immediate operand of vcvtps2ph.
+pub const RoundMode = packed struct(u5) {
+    mode: enum(u4) {
+        /// Round to nearest (even)
+        nearest = 0b0_00,
+        /// Round down (toward -∞)
+        down = 0b0_01,
+        /// Round up (toward +∞)
+        up = 0b0_10,
+        /// Round toward zero (truncate)
+        zero = 0b0_11,
+        /// Use current rounding mode of MXCSR.RC
+        mxcsr = 0b1_00,
+    } = .mxcsr,
+    precision: enum(u1) {
+        normal = 0b0,
+        inexact = 0b1,
+    } = .normal,
+
+    pub fn imm(mode: RoundMode) Immediate {
+        return .u(@as(@typeInfo(RoundMode).@"struct".backing_integer.?, @bitCast(mode)));
+    }
+};
+
+/// The immediate operand of cmppd, cmpps, cmpsd, and cmpss.
+pub const SseFloatPredicate = enum(u3) {
+    /// Equal (ordered, non-signaling)
+    eq,
+    /// Less-than (ordered, signaling)
+    lt,
+    /// Less-than-or-equal (ordered, signaling)
+    le,
+    /// Unordered (non-signaling)
+    unord,
+    /// Not-equal (unordered, non-signaling)
+    neq,
+    /// Not-less-than (unordered, signaling)
+    nlt,
+    /// Not-less-than-or-equal (unordered, signaling)
+    nle,
+    /// Ordered (non-signaling)
+    ord,
+
+    /// Equal (ordered, non-signaling)
+    pub const eq_oq: SseFloatPredicate = .eq;
+    /// Less-than (ordered, signaling)
+    pub const lt_os: SseFloatPredicate = .lt;
+    /// Less-than-or-equal (ordered, signaling)
+    pub const le_os: SseFloatPredicate = .le;
+    /// Unordered (non-signaling)
+    pub const unord_q: SseFloatPredicate = .unord;
+    /// Not-equal (unordered, non-signaling)
+    pub const neq_uq: SseFloatPredicate = .neq;
+    /// Not-less-than (unordered, signaling)
+    pub const nlt_us: SseFloatPredicate = .nlt;
+    /// Not-less-than-or-equal (unordered, signaling)
+    pub const nle_us: SseFloatPredicate = .nle;
+    /// Ordered (non-signaling)
+    pub const ord_q: SseFloatPredicate = .ord;
+
+    pub fn imm(pred: SseFloatPredicate) Immediate {
+        return .u(@intFromEnum(pred));
+    }
+};
+
+/// The immediate operand of vcmppd, vcmpps, vcmpsd, and vcmpss.
+pub const VexFloatPredicate = enum(u5) {
+    /// Equal (ordered, non-signaling)
+    eq_oq,
+    /// Less-than (ordered, signaling)
+    lt_os,
+    /// Less-than-or-equal (ordered, signaling)
+    le_os,
+    /// Unordered (non-signaling)
+    unord_q,
+    /// Not-equal (unordered, non-signaling)
+    neq_uq,
+    /// Not-less-than (unordered, signaling)
+    nlt_us,
+    /// Not-less-than-or-equal (unordered, signaling)
+    nle_us,
+    /// Ordered (non-signaling)
+    ord_q,
+    /// Equal (unordered, non-signaling)
+    eq_uq,
+    /// Not-greater-than-or-equal (unordered, signaling)
+    nge_us,
+    /// Not-greater-than (unordered, signaling)
+    ngt_us,
+    /// False (ordered, non-signaling)
+    false_oq,
+    /// Not-equal (ordered, non-signaling)
+    neq_oq,
+    /// Greater-than-or-equal (ordered, signaling)
+    ge_os,
+    /// Greater-than (ordered, signaling)
+    gt_os,
+    /// True (unordered, non-signaling)
+    true_uq,
+    /// Equal (unordered, non-signaling)
+    eq_os,
+    /// Less-than (ordered, non-signaling)
+    lt_oq,
+    /// Less-than-or-equal (ordered, non-signaling)
+    le_oq,
+    /// Unordered (signaling)
+    unord_s,
+    /// Not-equal (unordered, signaling)
+    neq_us,
+    /// Not-less-than (unordered, non-signaling)
+    nlt_uq,
+    /// Not-less-than-or-equal (unordered, non-signaling)
+    nle_uq,
+    /// Ordered (signaling)
+    ord_s,
+    /// Equal (unordered, signaling)
+    eq_us,
+    /// Not-greater-than-or-equal (unordered, non-signaling)
+    nge_uq,
+    /// Not-greater-than (unordered, non-signaling)
+    ngt_uq,
+    /// False (ordered, signaling)
+    false_os,
+    /// Not-equal (ordered, signaling)
+    neq_os,
+    /// Greater-than-or-equal (ordered, non-signaling)
+    ge_oq,
+    /// Greater-than (ordered, non-signaling)
+    gt_oq,
+    /// True (unordered, signaling)
+    true_us,
+
+    /// Equal (ordered, non-signaling)
+    pub const eq: VexFloatPredicate = .eq_oq;
+    /// Less-than (ordered, signaling)
+    pub const lt: VexFloatPredicate = .lt_os;
+    /// Less-than-or-equal (ordered, signaling)
+    pub const le: VexFloatPredicate = .le_os;
+    /// Unordered (non-signaling)
+    pub const unord: VexFloatPredicate = .unord_q;
+    /// Not-equal (unordered, non-signaling)
+    pub const neq: VexFloatPredicate = .neq_uq;
+    /// Not-less-than (unordered, signaling)
+    pub const nlt: VexFloatPredicate = .nlt_us;
+    /// Not-less-than-or-equal (unordered, signaling)
+    pub const nle: VexFloatPredicate = .nle_us;
+    /// Ordered (non-signaling)
+    pub const ord: VexFloatPredicate = .ord_q;
+    /// Not-greater-than-or-equal (unordered, signaling)
+    pub const nge: VexFloatPredicate = .nge_us;
+    /// Not-greater-than (unordered, signaling)
+    pub const ngt: VexFloatPredicate = .ngt_us;
+    /// False (ordered, non-signaling)
+    pub const @"false": VexFloatPredicate = .false_oq;
+    /// Greater-than-or-equal (ordered, signaling)
+    pub const ge: VexFloatPredicate = .ge_os;
+    /// Greater-than (ordered, signaling)
+    pub const gt: VexFloatPredicate = .gt_os;
+    /// True (unordered, non-signaling)
+    pub const @"true": VexFloatPredicate = .true_uq;
+
+    pub fn imm(pred: VexFloatPredicate) Immediate {
+        return .u(@intFromEnum(pred));
+    }
+};
+
+pub const Register = enum(u8) {
     // zig fmt: off
     rax, rcx, rdx, rbx, rsp, rbp, rsi, rdi,
     r8, r9, r10, r11, r12, r13, r14, r15,
@@ -169,69 +363,99 @@ pub const Register = enum(u7) {
     xmm0, xmm1, xmm2,  xmm3,  xmm4,  xmm5,  xmm6,  xmm7,
     xmm8, xmm9, xmm10, xmm11, xmm12, xmm13, xmm14, xmm15,
 
+    mm0, mm1, mm2, mm3, mm4, mm5, mm6, mm7,
+
+    st0, st1, st2, st3, st4, st5, st6, st7,
+
     es, cs, ss, ds, fs, gs,
+
+    rip, eip, ip,
+
+    cr0, cr1, cr2,  cr3,  cr4,  cr5,  cr6,  cr7,
+    cr8, cr9, cr10, cr11, cr12, cr13, cr14, cr15,
+
+    dr0, dr1, dr2,  dr3,  dr4,  dr5,  dr6,  dr7,
+    dr8, dr9, dr10, dr11, dr12, dr13, dr14, dr15,
 
     none,
     // zig fmt: on
 
-    pub const Class = enum(u2) {
+    pub const Class = enum {
         general_purpose,
-        floating_point,
         segment,
+        x87,
+        mmx,
+        sse,
+        ip,
+        cr,
+        dr,
     };
 
     pub fn class(reg: Register) Class {
-        return switch (@enumToInt(reg)) {
+        return switch (@intFromEnum(reg)) {
             // zig fmt: off
-            @enumToInt(Register.rax)  ... @enumToInt(Register.r15)   => .general_purpose,
-            @enumToInt(Register.eax)  ... @enumToInt(Register.r15d)  => .general_purpose,
-            @enumToInt(Register.ax)   ... @enumToInt(Register.r15w)  => .general_purpose,
-            @enumToInt(Register.al)   ... @enumToInt(Register.r15b)  => .general_purpose,
-            @enumToInt(Register.ah)   ... @enumToInt(Register.bh)    => .general_purpose,
+            @intFromEnum(Register.rax)  ... @intFromEnum(Register.r15)   => .general_purpose,
+            @intFromEnum(Register.eax)  ... @intFromEnum(Register.r15d)  => .general_purpose,
+            @intFromEnum(Register.ax)   ... @intFromEnum(Register.r15w)  => .general_purpose,
+            @intFromEnum(Register.al)   ... @intFromEnum(Register.r15b)  => .general_purpose,
+            @intFromEnum(Register.ah)   ... @intFromEnum(Register.bh)    => .general_purpose,
 
-            @enumToInt(Register.ymm0) ... @enumToInt(Register.ymm15) => .floating_point,
-            @enumToInt(Register.xmm0) ... @enumToInt(Register.xmm15) => .floating_point,
+            @intFromEnum(Register.ymm0) ... @intFromEnum(Register.ymm15) => .sse,
+            @intFromEnum(Register.xmm0) ... @intFromEnum(Register.xmm15) => .sse,
+            @intFromEnum(Register.mm0)  ... @intFromEnum(Register.mm7)   => .mmx,
+            @intFromEnum(Register.st0)  ... @intFromEnum(Register.st7)   => .x87,
 
-            @enumToInt(Register.es)   ... @enumToInt(Register.gs)    => .segment,
+            @intFromEnum(Register.es)   ... @intFromEnum(Register.gs)    => .segment,
+            @intFromEnum(Register.rip)  ... @intFromEnum(Register.ip)    => .ip,
+            @intFromEnum(Register.cr0)  ... @intFromEnum(Register.cr15)  => .cr,
+            @intFromEnum(Register.dr0)  ... @intFromEnum(Register.dr15)  => .dr,
 
             else => unreachable,
             // zig fmt: on
         };
     }
 
-    pub fn id(reg: Register) u6 {
-        const base = switch (@enumToInt(reg)) {
+    pub fn id(reg: Register) u7 {
+        const base = switch (@intFromEnum(reg)) {
             // zig fmt: off
-            @enumToInt(Register.rax)  ... @enumToInt(Register.r15)   => @enumToInt(Register.rax),
-            @enumToInt(Register.eax)  ... @enumToInt(Register.r15d)  => @enumToInt(Register.eax),
-            @enumToInt(Register.ax)   ... @enumToInt(Register.r15w)  => @enumToInt(Register.ax),
-            @enumToInt(Register.al)   ... @enumToInt(Register.r15b)  => @enumToInt(Register.al),
-            @enumToInt(Register.ah)   ... @enumToInt(Register.bh)    => @enumToInt(Register.ah) - 4,
+            @intFromEnum(Register.rax)  ... @intFromEnum(Register.r15)   => @intFromEnum(Register.rax),
+            @intFromEnum(Register.eax)  ... @intFromEnum(Register.r15d)  => @intFromEnum(Register.eax),
+            @intFromEnum(Register.ax)   ... @intFromEnum(Register.r15w)  => @intFromEnum(Register.ax),
+            @intFromEnum(Register.al)   ... @intFromEnum(Register.r15b)  => @intFromEnum(Register.al),
+            @intFromEnum(Register.ah)   ... @intFromEnum(Register.bh)    => @intFromEnum(Register.ah),
 
-            @enumToInt(Register.ymm0) ... @enumToInt(Register.ymm15) => @enumToInt(Register.ymm0) - 16,
-            @enumToInt(Register.xmm0) ... @enumToInt(Register.xmm15) => @enumToInt(Register.xmm0) - 16,
-
-            @enumToInt(Register.es)   ... @enumToInt(Register.gs)    => @enumToInt(Register.es) - 32,
+            @intFromEnum(Register.ymm0) ... @intFromEnum(Register.ymm15) => @intFromEnum(Register.ymm0) - 16,
+            @intFromEnum(Register.xmm0) ... @intFromEnum(Register.xmm15) => @intFromEnum(Register.xmm0) - 16,
+            @intFromEnum(Register.mm0)  ... @intFromEnum(Register.mm7)   => @intFromEnum(Register.mm0) - 32,
+            @intFromEnum(Register.st0)  ... @intFromEnum(Register.st7)   => @intFromEnum(Register.st0) - 40,
+            @intFromEnum(Register.es)   ... @intFromEnum(Register.gs)    => @intFromEnum(Register.es) - 48,
+            @intFromEnum(Register.cr0)  ... @intFromEnum(Register.cr15)  => @intFromEnum(Register.cr0) - 54,
+            @intFromEnum(Register.dr0)  ... @intFromEnum(Register.dr15)  => @intFromEnum(Register.dr0) - 70,
 
             else => unreachable,
             // zig fmt: on
         };
-        return @intCast(u6, @enumToInt(reg) - base);
+        return @intCast(@intFromEnum(reg) - base);
     }
 
-    pub fn bitSize(reg: Register) u64 {
-        return switch (@enumToInt(reg)) {
+    pub fn bitSize(reg: Register) u10 {
+        return switch (@intFromEnum(reg)) {
             // zig fmt: off
-            @enumToInt(Register.rax)  ... @enumToInt(Register.r15)   => 64,
-            @enumToInt(Register.eax)  ... @enumToInt(Register.r15d)  => 32,
-            @enumToInt(Register.ax)   ... @enumToInt(Register.r15w)  => 16,
-            @enumToInt(Register.al)   ... @enumToInt(Register.r15b)  => 8,
-            @enumToInt(Register.ah)   ... @enumToInt(Register.bh)    => 8,
+            @intFromEnum(Register.rax)  ... @intFromEnum(Register.r15)   => 64,
+            @intFromEnum(Register.eax)  ... @intFromEnum(Register.r15d)  => 32,
+            @intFromEnum(Register.ax)   ... @intFromEnum(Register.r15w)  => 16,
+            @intFromEnum(Register.al)   ... @intFromEnum(Register.r15b)  => 8,
+            @intFromEnum(Register.ah)   ... @intFromEnum(Register.bh)    => 8,
 
-            @enumToInt(Register.ymm0) ... @enumToInt(Register.ymm15) => 256,
-            @enumToInt(Register.xmm0) ... @enumToInt(Register.xmm15) => 128,
+            @intFromEnum(Register.ymm0) ... @intFromEnum(Register.ymm15) => 256,
+            @intFromEnum(Register.xmm0) ... @intFromEnum(Register.xmm15) => 128,
+            @intFromEnum(Register.mm0)  ... @intFromEnum(Register.mm7)   => 64,
+            @intFromEnum(Register.st0)  ... @intFromEnum(Register.st7)   => 80,
 
-            @enumToInt(Register.es)   ... @enumToInt(Register.gs)    => 16,
+            @intFromEnum(Register.es)   ... @intFromEnum(Register.gs)    => 16,
+
+            @intFromEnum(Register.cr0)  ... @intFromEnum(Register.cr15)  => 64,
+            @intFromEnum(Register.dr0)  ... @intFromEnum(Register.dr15)  => 64,
 
             else => unreachable,
             // zig fmt: on
@@ -239,15 +463,18 @@ pub const Register = enum(u7) {
     }
 
     pub fn isExtended(reg: Register) bool {
-        return switch (@enumToInt(reg)) {
+        return switch (@intFromEnum(reg)) {
             // zig fmt: off
-            @enumToInt(Register.r8)  ... @enumToInt(Register.r15)    => true,
-            @enumToInt(Register.r8d) ... @enumToInt(Register.r15d)   => true,
-            @enumToInt(Register.r8w) ... @enumToInt(Register.r15w)   => true,
-            @enumToInt(Register.r8b) ... @enumToInt(Register.r15b)   => true,
+            @intFromEnum(Register.r8)  ... @intFromEnum(Register.r15)    => true,
+            @intFromEnum(Register.r8d) ... @intFromEnum(Register.r15d)   => true,
+            @intFromEnum(Register.r8w) ... @intFromEnum(Register.r15w)   => true,
+            @intFromEnum(Register.r8b) ... @intFromEnum(Register.r15b)   => true,
 
-            @enumToInt(Register.ymm8) ... @enumToInt(Register.ymm15) => true,
-            @enumToInt(Register.xmm8) ... @enumToInt(Register.xmm15) => true,
+            @intFromEnum(Register.ymm8) ... @intFromEnum(Register.ymm15) => true,
+            @intFromEnum(Register.xmm8) ... @intFromEnum(Register.xmm15) => true,
+
+            @intFromEnum(Register.cr8)  ... @intFromEnum(Register.cr15)  => true,
+            @intFromEnum(Register.dr8)  ... @intFromEnum(Register.dr15)  => true,
 
             else => false,
             // zig fmt: on
@@ -255,27 +482,32 @@ pub const Register = enum(u7) {
     }
 
     pub fn enc(reg: Register) u4 {
-        const base = switch (@enumToInt(reg)) {
+        const base = switch (@intFromEnum(reg)) {
             // zig fmt: off
-            @enumToInt(Register.rax)  ... @enumToInt(Register.r15)   => @enumToInt(Register.rax),
-            @enumToInt(Register.eax)  ... @enumToInt(Register.r15d)  => @enumToInt(Register.eax),
-            @enumToInt(Register.ax)   ... @enumToInt(Register.r15w)  => @enumToInt(Register.ax),
-            @enumToInt(Register.al)   ... @enumToInt(Register.r15b)  => @enumToInt(Register.al),
-            @enumToInt(Register.ah)   ... @enumToInt(Register.bh)    => @enumToInt(Register.ah) - 4,
+            @intFromEnum(Register.rax)  ... @intFromEnum(Register.r15)   => @intFromEnum(Register.rax),
+            @intFromEnum(Register.eax)  ... @intFromEnum(Register.r15d)  => @intFromEnum(Register.eax),
+            @intFromEnum(Register.ax)   ... @intFromEnum(Register.r15w)  => @intFromEnum(Register.ax),
+            @intFromEnum(Register.al)   ... @intFromEnum(Register.r15b)  => @intFromEnum(Register.al),
+            @intFromEnum(Register.ah)   ... @intFromEnum(Register.bh)    => @intFromEnum(Register.ah) - 4,
 
-            @enumToInt(Register.ymm0) ... @enumToInt(Register.ymm15) => @enumToInt(Register.ymm0),
-            @enumToInt(Register.xmm0) ... @enumToInt(Register.xmm15) => @enumToInt(Register.xmm0),
+            @intFromEnum(Register.ymm0) ... @intFromEnum(Register.ymm15) => @intFromEnum(Register.ymm0),
+            @intFromEnum(Register.xmm0) ... @intFromEnum(Register.xmm15) => @intFromEnum(Register.xmm0),
+            @intFromEnum(Register.mm0)  ... @intFromEnum(Register.mm7)   => @intFromEnum(Register.mm0),
+            @intFromEnum(Register.st0)  ... @intFromEnum(Register.st7)   => @intFromEnum(Register.st0),
 
-            @enumToInt(Register.es)   ... @enumToInt(Register.gs)    => @enumToInt(Register.es),
+            @intFromEnum(Register.es)   ... @intFromEnum(Register.gs)    => @intFromEnum(Register.es),
+
+            @intFromEnum(Register.cr0)  ... @intFromEnum(Register.cr15)  => @intFromEnum(Register.cr0),
+            @intFromEnum(Register.dr0)  ... @intFromEnum(Register.dr15)  => @intFromEnum(Register.dr0),
 
             else => unreachable,
             // zig fmt: on
         };
-        return @truncate(u4, @enumToInt(reg) - base);
+        return @truncate(@intFromEnum(reg) - base);
     }
 
     pub fn lowEnc(reg: Register) u3 {
-        return @truncate(u3, reg.enc());
+        return @truncate(reg.enc());
     }
 
     pub fn toBitSize(reg: Register, bit_size: u64) Register {
@@ -292,106 +524,89 @@ pub const Register = enum(u7) {
 
     fn gpBase(reg: Register) u7 {
         assert(reg.class() == .general_purpose);
-        return switch (@enumToInt(reg)) {
+        return switch (@intFromEnum(reg)) {
             // zig fmt: off
-            @enumToInt(Register.rax)  ... @enumToInt(Register.r15)   => @enumToInt(Register.rax),
-            @enumToInt(Register.eax)  ... @enumToInt(Register.r15d)  => @enumToInt(Register.eax),
-            @enumToInt(Register.ax)   ... @enumToInt(Register.r15w)  => @enumToInt(Register.ax),
-            @enumToInt(Register.al)   ... @enumToInt(Register.r15b)  => @enumToInt(Register.al),
-            @enumToInt(Register.ah)   ... @enumToInt(Register.bh)    => @enumToInt(Register.ah) - 4,
+            @intFromEnum(Register.rax)  ... @intFromEnum(Register.r15)   => @intFromEnum(Register.rax),
+            @intFromEnum(Register.eax)  ... @intFromEnum(Register.r15d)  => @intFromEnum(Register.eax),
+            @intFromEnum(Register.ax)   ... @intFromEnum(Register.r15w)  => @intFromEnum(Register.ax),
+            @intFromEnum(Register.al)   ... @intFromEnum(Register.r15b)  => @intFromEnum(Register.al),
+            @intFromEnum(Register.ah)   ... @intFromEnum(Register.bh)    => @intFromEnum(Register.ah),
             else => unreachable,
             // zig fmt: on
         };
     }
 
     pub fn to64(reg: Register) Register {
-        return @intToEnum(Register, @enumToInt(reg) - reg.gpBase() + @enumToInt(Register.rax));
+        return @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.rax));
     }
 
     pub fn to32(reg: Register) Register {
-        return @intToEnum(Register, @enumToInt(reg) - reg.gpBase() + @enumToInt(Register.eax));
+        return @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.eax));
     }
 
     pub fn to16(reg: Register) Register {
-        return @intToEnum(Register, @enumToInt(reg) - reg.gpBase() + @enumToInt(Register.ax));
+        return @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.ax));
     }
 
     pub fn to8(reg: Register) Register {
-        return @intToEnum(Register, @enumToInt(reg) - reg.gpBase() + @enumToInt(Register.al));
+        return switch (@intFromEnum(reg)) {
+            else => @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.al)),
+            @intFromEnum(Register.ah)...@intFromEnum(Register.bh) => reg,
+        };
     }
 
-    fn fpBase(reg: Register) u7 {
-        assert(reg.class() == .floating_point);
-        return switch (@enumToInt(reg)) {
-            @enumToInt(Register.ymm0)...@enumToInt(Register.ymm15) => @enumToInt(Register.ymm0),
-            @enumToInt(Register.xmm0)...@enumToInt(Register.xmm15) => @enumToInt(Register.xmm0),
+    fn sseBase(reg: Register) u7 {
+        assert(reg.class() == .sse);
+        return switch (@intFromEnum(reg)) {
+            @intFromEnum(Register.ymm0)...@intFromEnum(Register.ymm15) => @intFromEnum(Register.ymm0),
+            @intFromEnum(Register.xmm0)...@intFromEnum(Register.xmm15) => @intFromEnum(Register.xmm0),
             else => unreachable,
         };
     }
 
     pub fn to256(reg: Register) Register {
-        return @intToEnum(Register, @enumToInt(reg) - reg.fpBase() + @enumToInt(Register.ymm0));
+        return @enumFromInt(@intFromEnum(reg) - reg.sseBase() + @intFromEnum(Register.ymm0));
     }
 
     pub fn to128(reg: Register) Register {
-        return @intToEnum(Register, @enumToInt(reg) - reg.fpBase() + @enumToInt(Register.xmm0));
+        return @enumFromInt(@intFromEnum(reg) - reg.sseBase() + @intFromEnum(Register.xmm0));
     }
 
-    pub fn dwarfLocOp(reg: Register) u8 {
+    /// DWARF register encoding
+    pub fn dwarfNum(reg: Register) u6 {
         return switch (reg.class()) {
-            .general_purpose => switch (reg.to64()) {
-                .rax => DW.OP.reg0,
-                .rdx => DW.OP.reg1,
-                .rcx => DW.OP.reg2,
-                .rbx => DW.OP.reg3,
-                .rsi => DW.OP.reg4,
-                .rdi => DW.OP.reg5,
-                .rbp => DW.OP.reg6,
-                .rsp => DW.OP.reg7,
-                else => @intCast(u8, @enumToInt(reg) - reg.gpBase()) + DW.OP.reg0,
-            },
-            .floating_point => @intCast(u8, @enumToInt(reg) - reg.fpBase()) + DW.OP.reg17,
-            else => unreachable,
-        };
-    }
-
-    /// DWARF encodings that push a value onto the DWARF stack that is either
-    /// the contents of a register or the result of adding the contents a given
-    /// register to a given signed offset.
-    pub fn dwarfLocOpDeref(reg: Register) u8 {
-        return switch (reg.class()) {
-            .general_purpose => switch (reg.to64()) {
-                .rax => DW.OP.breg0,
-                .rdx => DW.OP.breg1,
-                .rcx => DW.OP.breg2,
-                .rbx => DW.OP.breg3,
-                .rsi => DW.OP.breg4,
-                .rdi => DW.OP.breg5,
-                .rbp => DW.OP.breg6,
-                .rsp => DW.OP.breg7,
-                else => @intCast(u8, @enumToInt(reg) - reg.gpBase()) + DW.OP.breg0,
-            },
-            .floating_point => @intCast(u8, @enumToInt(reg) - reg.fpBase()) + DW.OP.breg17,
-            else => unreachable,
+            .general_purpose => if (reg.isExtended())
+                reg.enc()
+            else
+                @as(u3, @truncate(@as(u24, 0o54673120) >> @as(u5, reg.enc()) * 3)),
+            .sse => 17 + @as(u6, reg.enc()),
+            .x87 => 33 + @as(u6, reg.enc()),
+            .mmx => 41 + @as(u6, reg.enc()),
+            .segment => 50 + @as(u6, reg.enc()),
+            .ip => 16,
+            .cr, .dr => unreachable,
         };
     }
 };
 
 test "Register id - different classes" {
     try expect(Register.al.id() == Register.ax.id());
-    try expect(Register.ah.id() == Register.spl.id());
+    try expect(Register.ah.id() != Register.spl.id());
     try expect(Register.ax.id() == Register.eax.id());
     try expect(Register.eax.id() == Register.rax.id());
 
     try expect(Register.ymm0.id() == 0b10000);
     try expect(Register.ymm0.id() != Register.rax.id());
     try expect(Register.xmm0.id() == Register.ymm0.id());
+    try expect(Register.xmm0.id() != Register.mm0.id());
+    try expect(Register.mm0.id() != Register.st0.id());
 
-    try expect(Register.es.id() == 0b100000);
+    try expect(Register.es.id() == 0b110000);
 }
 
 test "Register enc - different classes" {
     try expect(Register.al.enc() == Register.ax.enc());
+    try expect(Register.ah.enc() == Register.spl.enc());
     try expect(Register.ax.enc() == Register.eax.enc());
     try expect(Register.eax.enc() == Register.rax.enc());
     try expect(Register.ymm0.enc() == Register.rax.enc());
@@ -401,7 +616,9 @@ test "Register enc - different classes" {
 
 test "Register classes" {
     try expect(Register.r11.class() == .general_purpose);
-    try expect(Register.ymm11.class() == .floating_point);
+    try expect(Register.ymm11.class() == .sse);
+    try expect(Register.mm3.class() == .mmx);
+    try expect(Register.st3.class() == .x87);
     try expect(Register.fs.class() == .segment);
 }
 
@@ -419,10 +636,10 @@ pub const FrameIndex = enum(u32) {
     // Other indices are used for local variable stack slots
     _,
 
-    pub const named_count = @typeInfo(FrameIndex).Enum.fields.len;
+    pub const named_count = @typeInfo(FrameIndex).@"enum".fields.len;
 
     pub fn isNamed(fi: FrameIndex) bool {
-        return @enumToInt(fi) < named_count;
+        return @intFromEnum(fi) < named_count;
     }
 
     pub fn format(
@@ -437,160 +654,163 @@ pub const FrameIndex = enum(u32) {
             try writer.writeAll(@tagName(fi));
         } else {
             try writer.writeByte('(');
-            try std.fmt.formatType(@enumToInt(fi), fmt, options, writer, 0);
+            try std.fmt.formatType(@intFromEnum(fi), fmt, options, writer, 0);
             try writer.writeByte(')');
         }
     }
 };
 
-pub const Memory = union(enum) {
-    sib: Sib,
-    rip: Rip,
-    moffs: Moffs,
+pub const FrameAddr = struct { index: FrameIndex, off: i32 = 0 };
 
-    pub const Base = union(enum) {
+pub const RegisterOffset = struct { reg: Register, off: i32 = 0 };
+
+pub const SymbolOffset = struct { sym_index: u32, off: i32 = 0 };
+
+pub const Memory = struct {
+    base: Base = .none,
+    mod: Mod = .{ .rm = .{} },
+
+    pub const Base = union(enum(u3)) {
         none,
         reg: Register,
         frame: FrameIndex,
+        table,
+        reloc: u32,
 
-        pub const Tag = @typeInfo(Base).Union.tag_type.?;
+        pub const Tag = @typeInfo(Base).@"union".tag_type.?;
 
         pub fn isExtended(self: Base) bool {
             return switch (self) {
-                .none, .frame => false, // neither rsp nor rbp are extended
+                .none, .frame, .table, .reloc => false, // rsp, rbp, and rip are not extended
                 .reg => |reg| reg.isExtended(),
             };
         }
     };
 
-    pub const ScaleIndex = struct {
-        scale: u4,
-        index: Register,
+    pub const Mod = union(enum(u1)) {
+        rm: Rm,
+        off: u64,
 
-        const none = ScaleIndex{ .scale = 0, .index = undefined };
+        pub const Rm = struct {
+            size: Size = .none,
+            index: Register = .none,
+            scale: Scale = .@"1",
+            disp: i32 = 0,
+        };
     };
 
-    pub const PtrSize = enum {
+    pub const Size = enum(u4) {
+        none,
+        ptr,
         byte,
         word,
         dword,
         qword,
         tbyte,
-        dqword,
+        xword,
+        yword,
+        zword,
 
-        pub fn fromSize(size: u32) PtrSize {
+        pub fn fromSize(size: u32) Size {
             return switch (size) {
                 1...1 => .byte,
                 2...2 => .word,
                 3...4 => .dword,
                 5...8 => .qword,
-                9...16 => .dqword,
+                9...16 => .xword,
+                17...32 => .yword,
+                33...64 => .zword,
                 else => unreachable,
             };
         }
 
-        pub fn fromBitSize(bit_size: u64) PtrSize {
+        pub fn fromBitSize(bit_size: u64) Size {
             return switch (bit_size) {
                 8 => .byte,
                 16 => .word,
                 32 => .dword,
                 64 => .qword,
                 80 => .tbyte,
-                128 => .dqword,
+                128 => .xword,
+                256 => .yword,
+                512 => .zword,
                 else => unreachable,
             };
         }
 
-        pub fn bitSize(s: PtrSize) u64 {
+        pub fn bitSize(s: Size, target: *const std.Target) u64 {
             return switch (s) {
+                .none => 0,
+                .ptr => target.ptrBitWidth(),
                 .byte => 8,
                 .word => 16,
                 .dword => 32,
                 .qword => 64,
                 .tbyte => 80,
-                .dqword => 128,
+                .xword => 128,
+                .yword => 256,
+                .zword => 512,
             };
+        }
+
+        pub fn format(
+            s: Size,
+            comptime _: []const u8,
+            _: std.fmt.FormatOptions,
+            writer: anytype,
+        ) @TypeOf(writer).Error!void {
+            if (s == .none) return;
+            try writer.writeAll(@tagName(s));
+            switch (s) {
+                .none => unreachable,
+                .ptr => {},
+                else => {
+                    try writer.writeByte(' ');
+                    try writer.writeAll("ptr");
+                },
+            }
         }
     };
 
-    pub const Sib = struct {
-        ptr_size: PtrSize,
-        base: Base,
-        scale_index: ScaleIndex,
-        disp: i32,
+    pub const Scale = enum(u2) {
+        @"1",
+        @"2",
+        @"4",
+        @"8",
+
+        pub fn fromFactor(factor: u4) Scale {
+            return switch (factor) {
+                else => unreachable,
+                1 => .@"1",
+                2 => .@"2",
+                4 => .@"4",
+                8 => .@"8",
+            };
+        }
+
+        pub fn toFactor(scale: Scale) u4 {
+            return switch (scale) {
+                .@"1" => 1,
+                .@"2" => 2,
+                .@"4" => 4,
+                .@"8" => 8,
+            };
+        }
+
+        pub fn fromLog2(log2: u2) Scale {
+            return @enumFromInt(log2);
+        }
+
+        pub fn toLog2(scale: Scale) u2 {
+            return @intFromEnum(scale);
+        }
     };
-
-    pub const Rip = struct {
-        ptr_size: PtrSize,
-        disp: i32,
-    };
-
-    pub const Moffs = struct {
-        seg: Register,
-        offset: u64,
-    };
-
-    pub fn moffs(reg: Register, offset: u64) Memory {
-        assert(reg.class() == .segment);
-        return .{ .moffs = .{ .seg = reg, .offset = offset } };
-    }
-
-    pub fn sib(ptr_size: PtrSize, args: struct {
-        disp: i32 = 0,
-        base: Base = .none,
-        scale_index: ?ScaleIndex = null,
-    }) Memory {
-        if (args.scale_index) |si| assert(std.math.isPowerOfTwo(si.scale));
-        return .{ .sib = .{
-            .base = args.base,
-            .disp = args.disp,
-            .ptr_size = ptr_size,
-            .scale_index = if (args.scale_index) |si| si else ScaleIndex.none,
-        } };
-    }
-
-    pub fn rip(ptr_size: PtrSize, disp: i32) Memory {
-        return .{ .rip = .{ .ptr_size = ptr_size, .disp = disp } };
-    }
-
-    pub fn isSegmentRegister(mem: Memory) bool {
-        return switch (mem) {
-            .moffs => true,
-            .rip => false,
-            .sib => |s| switch (s.base) {
-                .none, .frame => false,
-                .reg => |reg| reg.class() == .segment,
-            },
-        };
-    }
-
-    pub fn base(mem: Memory) Base {
-        return switch (mem) {
-            .moffs => |m| .{ .reg = m.seg },
-            .sib => |s| s.base,
-            .rip => .none,
-        };
-    }
-
-    pub fn scaleIndex(mem: Memory) ?ScaleIndex {
-        return switch (mem) {
-            .moffs, .rip => null,
-            .sib => |s| if (s.scale_index.scale > 0) s.scale_index else null,
-        };
-    }
-
-    pub fn bitSize(mem: Memory) u64 {
-        return switch (mem) {
-            .rip => |r| r.ptr_size.bitSize(),
-            .sib => |s| s.ptr_size.bitSize(),
-            .moffs => 64,
-        };
-    }
 };
 
 pub const Immediate = union(enum) {
     signed: i32,
     unsigned: u64,
+    reloc: SymbolOffset,
 
     pub fn u(x: u64) Immediate {
         return .{ .unsigned = x };
@@ -600,21 +820,19 @@ pub const Immediate = union(enum) {
         return .{ .signed = x };
     }
 
-    pub fn asUnsigned(imm: Immediate, bit_size: u64) u64 {
-        return switch (imm) {
-            .signed => |x| switch (bit_size) {
-                1, 8 => @bitCast(u8, @intCast(i8, x)),
-                16 => @bitCast(u16, @intCast(i16, x)),
-                32, 64 => @bitCast(u32, x),
-                else => unreachable,
-            },
-            .unsigned => |x| switch (bit_size) {
-                1, 8 => @intCast(u8, x),
-                16 => @intCast(u16, x),
-                32 => @intCast(u32, x),
-                64 => x,
-                else => unreachable,
-            },
-        };
+    pub fn rel(sym_off: SymbolOffset) Immediate {
+        return .{ .reloc = sym_off };
+    }
+
+    pub fn format(
+        imm: Immediate,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        switch (imm) {
+            inline else => |int| try writer.print("{d}", .{int}),
+            .reloc => |sym_off| try writer.print("Symbol({[sym_index]d}) + {[off]d}", sym_off),
+        }
     }
 };

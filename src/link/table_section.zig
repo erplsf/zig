@@ -1,8 +1,8 @@
 pub fn TableSection(comptime Entry: type) type {
     return struct {
-        entries: std.ArrayListUnmanaged(Entry) = .{},
-        free_list: std.ArrayListUnmanaged(Index) = .{},
-        lookup: std.AutoHashMapUnmanaged(Entry, Index) = .{},
+        entries: std.ArrayListUnmanaged(Entry) = .empty,
+        free_list: std.ArrayListUnmanaged(Index) = .empty,
+        lookup: std.AutoHashMapUnmanaged(Entry, Index) = .empty,
 
         pub fn deinit(self: *Self, allocator: Allocator) void {
             self.entries.deinit(allocator);
@@ -18,7 +18,7 @@ pub fn TableSection(comptime Entry: type) type {
                     break :blk index;
                 } else {
                     log.debug("  (allocating entry at index {d})", .{self.entries.items.len});
-                    const index = @intCast(u32, self.entries.items.len);
+                    const index = @as(u32, @intCast(self.entries.items.len));
                     _ = self.entries.addOneAssumeCapacity();
                     break :blk index;
                 }

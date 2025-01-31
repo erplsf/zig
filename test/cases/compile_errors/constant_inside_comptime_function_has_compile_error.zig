@@ -1,7 +1,7 @@
 const ContextAllocator = MemoryPool(usize);
 
 pub fn MemoryPool(comptime T: type) type {
-    const free_list_t = @compileError("aoeu",);
+    const free_list_t = @compileError("aoeu");
     _ = T;
 
     return struct {
@@ -10,7 +10,7 @@ pub fn MemoryPool(comptime T: type) type {
 }
 
 export fn entry() void {
-    var allocator: ContextAllocator = undefined;
+    const allocator: ContextAllocator = undefined;
     _ = allocator;
 }
 
@@ -19,3 +19,5 @@ export fn entry() void {
 //
 // :4:5: error: unreachable code
 // :4:25: note: control flow is diverted here
+// :4:25: error: aoeu
+// :1:36: note: called from here

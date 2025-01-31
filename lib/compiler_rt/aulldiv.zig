@@ -1,16 +1,17 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
+const os = builtin.os.tag;
 const abi = builtin.abi;
 const common = @import("common.zig");
 
 pub const panic = common.panic;
 
 comptime {
-    if (arch == .x86 and abi == .msvc and builtin.zig_backend != .stage2_c) {
+    if (arch == .x86 and os == .windows and (abi == .msvc or abi == .itanium) and !builtin.link_libc) {
         // Don't let LLVM apply the stdcall name mangling on those MSVC builtins
-        @export(_alldiv, .{ .name = "\x01__alldiv", .linkage = common.linkage, .visibility = common.visibility });
-        @export(_aulldiv, .{ .name = "\x01__aulldiv", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&_alldiv, .{ .name = "\x01__alldiv", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&_aulldiv, .{ .name = "\x01__aulldiv", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 
@@ -21,9 +22,9 @@ pub fn _alldiv(a: i64, b: i64) callconv(.Stdcall) i64 {
     const an = (a ^ s_a) -% s_a;
     const bn = (b ^ s_b) -% s_b;
 
-    const r = @bitCast(u64, an) / @bitCast(u64, bn);
+    const r = @as(u64, @bitCast(an)) / @as(u64, @bitCast(bn));
     const s = s_a ^ s_b;
-    return (@bitCast(i64, r) ^ s) -% s;
+    return (@as(i64, @bitCast(r)) ^ s) -% s;
 }
 
 pub fn _aulldiv() callconv(.Naked) void {

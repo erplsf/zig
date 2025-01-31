@@ -1,6 +1,7 @@
+const builtin = @import("builtin");
 const std = @import("../../std.zig");
-const iovec = std.os.iovec;
-const iovec_const = std.os.iovec_const;
+const iovec = std.posix.iovec;
+const iovec_const = std.posix.iovec_const;
 const linux = std.os.linux;
 const SYS = linux.SYS;
 const uid_t = std.os.linux.uid_t;
@@ -13,7 +14,7 @@ const timespec = std.os.linux.timespec;
 pub fn syscall0(number: SYS) usize {
     return asm volatile ("ecall"
         : [ret] "={x10}" (-> usize),
-        : [number] "{x17}" (@enumToInt(number)),
+        : [number] "{x17}" (@intFromEnum(number)),
         : "memory"
     );
 }
@@ -21,7 +22,7 @@ pub fn syscall0(number: SYS) usize {
 pub fn syscall1(number: SYS, arg1: usize) usize {
     return asm volatile ("ecall"
         : [ret] "={x10}" (-> usize),
-        : [number] "{x17}" (@enumToInt(number)),
+        : [number] "{x17}" (@intFromEnum(number)),
           [arg1] "{x10}" (arg1),
         : "memory"
     );
@@ -30,7 +31,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
     return asm volatile ("ecall"
         : [ret] "={x10}" (-> usize),
-        : [number] "{x17}" (@enumToInt(number)),
+        : [number] "{x17}" (@intFromEnum(number)),
           [arg1] "{x10}" (arg1),
           [arg2] "{x11}" (arg2),
         : "memory"
@@ -40,7 +41,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
     return asm volatile ("ecall"
         : [ret] "={x10}" (-> usize),
-        : [number] "{x17}" (@enumToInt(number)),
+        : [number] "{x17}" (@intFromEnum(number)),
           [arg1] "{x10}" (arg1),
           [arg2] "{x11}" (arg2),
           [arg3] "{x12}" (arg3),
@@ -51,7 +52,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
     return asm volatile ("ecall"
         : [ret] "={x10}" (-> usize),
-        : [number] "{x17}" (@enumToInt(number)),
+        : [number] "{x17}" (@intFromEnum(number)),
           [arg1] "{x10}" (arg1),
           [arg2] "{x11}" (arg2),
           [arg3] "{x12}" (arg3),
@@ -63,7 +64,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
 pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
     return asm volatile ("ecall"
         : [ret] "={x10}" (-> usize),
-        : [number] "{x17}" (@enumToInt(number)),
+        : [number] "{x17}" (@intFromEnum(number)),
           [arg1] "{x10}" (arg1),
           [arg2] "{x11}" (arg2),
           [arg3] "{x12}" (arg3),
@@ -84,7 +85,7 @@ pub fn syscall6(
 ) usize {
     return asm volatile ("ecall"
         : [ret] "={x10}" (-> usize),
-        : [number] "{x17}" (@enumToInt(number)),
+        : [number] "{x17}" (@intFromEnum(number)),
           [arg1] "{x10}" (arg1),
           [arg2] "{x11}" (arg2),
           [arg3] "{x12}" (arg3),
@@ -95,42 +96,60 @@ pub fn syscall6(
     );
 }
 
-const CloneFn = *const fn (arg: usize) callconv(.C) u8;
-
-pub extern fn clone(func: CloneFn, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
-
-pub const restore = restore_rt;
-
-pub fn restore_rt() callconv(.Naked) void {
-    return asm volatile ("ecall"
-        :
-        : [number] "{x17}" (@enumToInt(SYS.rt_sigreturn)),
-        : "memory"
+pub fn clone() callconv(.Naked) usize {
+    // __clone(func, stack, flags, arg, ptid, tls, ctid)
+    //         a0,   a1,    a2,    a3,  a4,   a5,  a6
+    //
+    // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
+    //         a7         a0,    a1,    a2,   a3,  a4
+    asm volatile (
+        \\    # Save func and arg to stack
+        \\    addi a1, a1, -16
+        \\    sd a0, 0(a1)
+        \\    sd a3, 8(a1)
+        \\
+        \\    # Call SYS_clone
+        \\    mv a0, a2
+        \\    mv a2, a4
+        \\    mv a3, a5
+        \\    mv a4, a6
+        \\    li a7, 220 # SYS_clone
+        \\    ecall
+        \\
+        \\    beqz a0, 1f
+        \\    # Parent
+        \\    ret
+        \\
+        \\    # Child
+        \\1:
+    );
+    if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
+        \\    .cfi_undefined ra
+    );
+    asm volatile (
+        \\    mv fp, zero
+        \\    mv ra, zero
+        \\
+        \\    ld a1, 0(sp)
+        \\    ld a0, 8(sp)
+        \\    jalr a1
+        \\
+        \\    # Exit
+        \\    li a7, 93 # SYS_exit
+        \\    ecall
     );
 }
 
-pub const O = struct {
-    pub const CREAT = 0o100;
-    pub const EXCL = 0o200;
-    pub const NOCTTY = 0o400;
-    pub const TRUNC = 0o1000;
-    pub const APPEND = 0o2000;
-    pub const NONBLOCK = 0o4000;
-    pub const DSYNC = 0o10000;
-    pub const SYNC = 0o4010000;
-    pub const RSYNC = 0o4010000;
-    pub const DIRECTORY = 0o200000;
-    pub const NOFOLLOW = 0o400000;
-    pub const CLOEXEC = 0o2000000;
+pub const restore = restore_rt;
 
-    pub const ASYNC = 0o20000;
-    pub const DIRECT = 0o40000;
-    pub const LARGEFILE = 0o100000;
-    pub const NOATIME = 0o1000000;
-    pub const PATH = 0o10000000;
-    pub const TMPFILE = 0o20200000;
-    pub const NDELAY = NONBLOCK;
-};
+pub fn restore_rt() callconv(.Naked) noreturn {
+    asm volatile (
+        \\ ecall
+        :
+        : [number] "{x17}" (@intFromEnum(SYS.rt_sigreturn)),
+        : "memory"
+    );
+}
 
 pub const F = struct {
     pub const DUPFD = 0;
@@ -156,25 +175,18 @@ pub const F = struct {
     pub const GETOWNER_UIDS = 17;
 };
 
-pub const LOCK = struct {
-    pub const SH = 1;
-    pub const EX = 2;
-    pub const UN = 8;
-    pub const NB = 4;
-};
-
 pub const blksize_t = i32;
 pub const nlink_t = u32;
-pub const time_t = isize;
+pub const time_t = i64;
 pub const mode_t = u32;
-pub const off_t = isize;
-pub const ino_t = usize;
-pub const dev_t = usize;
-pub const blkcnt_t = isize;
+pub const off_t = i64;
+pub const ino_t = u64;
+pub const dev_t = u64;
+pub const blkcnt_t = i64;
 
 pub const timeval = extern struct {
-    tv_sec: time_t,
-    tv_usec: i64,
+    sec: time_t,
+    usec: i64,
 };
 
 pub const Flock = extern struct {
@@ -244,5 +256,13 @@ pub const Stat = extern struct {
 
 pub const Elf_Symndx = u32;
 
-pub const VDSO = struct {};
-pub const MAP = struct {};
+pub const VDSO = struct {
+    pub const CGT_SYM = "__vdso_clock_gettime";
+    pub const CGT_VER = "LINUX_4.15";
+};
+
+/// TODO
+pub const ucontext_t = void;
+
+/// TODO
+pub const getcontext = {};

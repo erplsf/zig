@@ -1,12 +1,9 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
-const assert = debug.assert;
+const assert = std.debug.assert;
 const autoHash = std.hash.autoHash;
-const debug = std.debug;
 const math = std.math;
 const mem = std.mem;
-const meta = std.meta;
-const trait = meta.trait;
 const Allocator = mem.Allocator;
 const Wyhash = std.hash.Wyhash;
 
@@ -14,18 +11,18 @@ pub fn getAutoHashFn(comptime K: type, comptime Context: type) (fn (Context, K) 
     comptime {
         assert(@hasDecl(std, "StringHashMap")); // detect when the following message needs updated
         if (K == []const u8) {
-            @compileError("std.auto_hash.autoHash does not allow slices here (" ++
+            @compileError("std.hash.autoHash does not allow slices here (" ++
                 @typeName(K) ++
                 ") because the intent is unclear. " ++
                 "Consider using std.StringHashMap for hashing the contents of []const u8. " ++
-                "Alternatively, consider using std.auto_hash.hash or providing your own hash function instead.");
+                "Alternatively, consider using std.hash.autoHashStrat or providing your own hash function instead.");
         }
     }
 
     return struct {
         fn hash(ctx: Context, key: K) u64 {
             _ = ctx;
-            if (comptime trait.hasUniqueRepresentation(K)) {
+            if (std.meta.hasUniqueRepresentation(K)) {
                 return Wyhash.hash(0, std.mem.asBytes(&key));
             } else {
                 var hasher = Wyhash.init(0);
@@ -40,7 +37,7 @@ pub fn getAutoEqlFn(comptime K: type, comptime Context: type) (fn (Context, K, K
     return struct {
         fn eql(ctx: Context, a: K, b: K) bool {
             _ = ctx;
-            return meta.eql(a, b);
+            return std.meta.eql(a, b);
         }
     }.eql;
 }
@@ -93,259 +90,31 @@ pub fn hashString(s: []const u8) u64 {
 }
 
 pub const StringIndexContext = struct {
-    bytes: *std.ArrayListUnmanaged(u8),
+    bytes: *const std.ArrayListUnmanaged(u8),
 
-    pub fn eql(self: @This(), a: u32, b: u32) bool {
-        _ = self;
+    pub fn eql(_: @This(), a: u32, b: u32) bool {
         return a == b;
     }
 
-    pub fn hash(self: @This(), x: u32) u64 {
-        const x_slice = mem.sliceTo(@ptrCast([*:0]const u8, self.bytes.items.ptr) + x, 0);
-        return hashString(x_slice);
+    pub fn hash(ctx: @This(), key: u32) u64 {
+        return hashString(mem.sliceTo(ctx.bytes.items[key..], 0));
     }
 };
 
 pub const StringIndexAdapter = struct {
-    bytes: *std.ArrayListUnmanaged(u8),
+    bytes: *const std.ArrayListUnmanaged(u8),
 
-    pub fn eql(self: @This(), a_slice: []const u8, b: u32) bool {
-        const b_slice = mem.sliceTo(@ptrCast([*:0]const u8, self.bytes.items.ptr) + b, 0);
-        return mem.eql(u8, a_slice, b_slice);
+    pub fn eql(ctx: @This(), a: []const u8, b: u32) bool {
+        return mem.eql(u8, a, mem.sliceTo(ctx.bytes.items[b..], 0));
     }
 
-    pub fn hash(self: @This(), adapted_key: []const u8) u64 {
-        _ = self;
+    pub fn hash(_: @This(), adapted_key: []const u8) u64 {
+        assert(mem.indexOfScalar(u8, adapted_key, 0) == null);
         return hashString(adapted_key);
     }
 };
 
 pub const default_max_load_percentage = 80;
-
-/// This function issues a compile error with a helpful message if there
-/// is a problem with the provided context type.  A context must have the following
-/// member functions:
-///   - hash(self, PseudoKey) Hash
-///   - eql(self, PseudoKey, Key) bool
-/// If you are passing a context to a *Adapted function, PseudoKey is the type
-/// of the key parameter.  Otherwise, when creating a HashMap or HashMapUnmanaged
-/// type, PseudoKey = Key = K.
-pub fn verifyContext(
-    comptime RawContext: type,
-    comptime PseudoKey: type,
-    comptime Key: type,
-    comptime Hash: type,
-    comptime is_array: bool,
-) void {
-    comptime {
-        var allow_const_ptr = false;
-        var allow_mutable_ptr = false;
-        // Context is the actual namespace type.  RawContext may be a pointer to Context.
-        var Context = RawContext;
-        // Make sure the context is a namespace type which may have member functions
-        switch (@typeInfo(Context)) {
-            .Struct, .Union, .Enum => {},
-            // Special-case .Opaque for a better error message
-            .Opaque => @compileError("Hash context must be a type with hash and eql member functions.  Cannot use " ++ @typeName(Context) ++ " because it is opaque.  Use a pointer instead."),
-            .Pointer => |ptr| {
-                if (ptr.size != .One) {
-                    @compileError("Hash context must be a type with hash and eql member functions.  Cannot use " ++ @typeName(Context) ++ " because it is not a single pointer.");
-                }
-                Context = ptr.child;
-                allow_const_ptr = true;
-                allow_mutable_ptr = !ptr.is_const;
-                switch (@typeInfo(Context)) {
-                    .Struct, .Union, .Enum, .Opaque => {},
-                    else => @compileError("Hash context must be a type with hash and eql member functions.  Cannot use " ++ @typeName(Context)),
-                }
-            },
-            else => @compileError("Hash context must be a type with hash and eql member functions.  Cannot use " ++ @typeName(Context)),
-        }
-
-        // Keep track of multiple errors so we can report them all.
-        var errors: []const u8 = "";
-
-        // Put common errors here, they will only be evaluated
-        // if the error is actually triggered.
-        const lazy = struct {
-            const prefix = "\n  ";
-            const deep_prefix = prefix ++ "  ";
-            const hash_signature = "fn (self, " ++ @typeName(PseudoKey) ++ ") " ++ @typeName(Hash);
-            const index_param = if (is_array) ", b_index: usize" else "";
-            const eql_signature = "fn (self, " ++ @typeName(PseudoKey) ++ ", " ++
-                @typeName(Key) ++ index_param ++ ") bool";
-            const err_invalid_hash_signature = prefix ++ @typeName(Context) ++ ".hash must be " ++ hash_signature ++
-                deep_prefix ++ "but is actually " ++ @typeName(@TypeOf(Context.hash));
-            const err_invalid_eql_signature = prefix ++ @typeName(Context) ++ ".eql must be " ++ eql_signature ++
-                deep_prefix ++ "but is actually " ++ @typeName(@TypeOf(Context.eql));
-        };
-
-        // Verify Context.hash(self, PseudoKey) => Hash
-        if (@hasDecl(Context, "hash")) {
-            const hash = Context.hash;
-            const info = @typeInfo(@TypeOf(hash));
-            if (info == .Fn) {
-                const func = info.Fn;
-                if (func.params.len != 2) {
-                    errors = errors ++ lazy.err_invalid_hash_signature;
-                } else {
-                    var emitted_signature = false;
-                    if (func.params[0].type) |Self| {
-                        if (Self == Context) {
-                            // pass, this is always fine.
-                        } else if (Self == *const Context) {
-                            if (!allow_const_ptr) {
-                                if (!emitted_signature) {
-                                    errors = errors ++ lazy.err_invalid_hash_signature;
-                                    emitted_signature = true;
-                                }
-                                errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context) ++ ", but is " ++ @typeName(Self);
-                                errors = errors ++ lazy.deep_prefix ++ "Note: Cannot be a pointer because it is passed by value.";
-                            }
-                        } else if (Self == *Context) {
-                            if (!allow_mutable_ptr) {
-                                if (!emitted_signature) {
-                                    errors = errors ++ lazy.err_invalid_hash_signature;
-                                    emitted_signature = true;
-                                }
-                                if (!allow_const_ptr) {
-                                    errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context) ++ ", but is " ++ @typeName(Self);
-                                    errors = errors ++ lazy.deep_prefix ++ "Note: Cannot be a pointer because it is passed by value.";
-                                } else {
-                                    errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context) ++ " or " ++ @typeName(*const Context) ++ ", but is " ++ @typeName(Self);
-                                    errors = errors ++ lazy.deep_prefix ++ "Note: Cannot be non-const because it is passed by const pointer.";
-                                }
-                            }
-                        } else {
-                            if (!emitted_signature) {
-                                errors = errors ++ lazy.err_invalid_hash_signature;
-                                emitted_signature = true;
-                            }
-                            errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context);
-                            if (allow_const_ptr) {
-                                errors = errors ++ " or " ++ @typeName(*const Context);
-                                if (allow_mutable_ptr) {
-                                    errors = errors ++ " or " ++ @typeName(*Context);
-                                }
-                            }
-                            errors = errors ++ ", but is " ++ @typeName(Self);
-                        }
-                    }
-                    if (func.params[1].type != null and func.params[1].type.? != PseudoKey) {
-                        if (!emitted_signature) {
-                            errors = errors ++ lazy.err_invalid_hash_signature;
-                            emitted_signature = true;
-                        }
-                        errors = errors ++ lazy.deep_prefix ++ "Second parameter must be " ++ @typeName(PseudoKey) ++ ", but is " ++ @typeName(func.params[1].type.?);
-                    }
-                    if (func.return_type != null and func.return_type.? != Hash) {
-                        if (!emitted_signature) {
-                            errors = errors ++ lazy.err_invalid_hash_signature;
-                            emitted_signature = true;
-                        }
-                        errors = errors ++ lazy.deep_prefix ++ "Return type must be " ++ @typeName(Hash) ++ ", but was " ++ @typeName(func.return_type.?);
-                    }
-                    // If any of these are generic (null), we cannot verify them.
-                    // The call sites check the return type, but cannot check the
-                    // parameters.  This may cause compile errors with generic hash/eql functions.
-                }
-            } else {
-                errors = errors ++ lazy.err_invalid_hash_signature;
-            }
-        } else {
-            errors = errors ++ lazy.prefix ++ @typeName(Context) ++ " must declare a hash function with signature " ++ lazy.hash_signature;
-        }
-
-        // Verify Context.eql(self, PseudoKey, Key) => bool
-        if (@hasDecl(Context, "eql")) {
-            const eql = Context.eql;
-            const info = @typeInfo(@TypeOf(eql));
-            if (info == .Fn) {
-                const func = info.Fn;
-                const args_len = if (is_array) 4 else 3;
-                if (func.params.len != args_len) {
-                    errors = errors ++ lazy.err_invalid_eql_signature;
-                } else {
-                    var emitted_signature = false;
-                    if (func.params[0].type) |Self| {
-                        if (Self == Context) {
-                            // pass, this is always fine.
-                        } else if (Self == *const Context) {
-                            if (!allow_const_ptr) {
-                                if (!emitted_signature) {
-                                    errors = errors ++ lazy.err_invalid_eql_signature;
-                                    emitted_signature = true;
-                                }
-                                errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context) ++ ", but is " ++ @typeName(Self);
-                                errors = errors ++ lazy.deep_prefix ++ "Note: Cannot be a pointer because it is passed by value.";
-                            }
-                        } else if (Self == *Context) {
-                            if (!allow_mutable_ptr) {
-                                if (!emitted_signature) {
-                                    errors = errors ++ lazy.err_invalid_eql_signature;
-                                    emitted_signature = true;
-                                }
-                                if (!allow_const_ptr) {
-                                    errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context) ++ ", but is " ++ @typeName(Self);
-                                    errors = errors ++ lazy.deep_prefix ++ "Note: Cannot be a pointer because it is passed by value.";
-                                } else {
-                                    errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context) ++ " or " ++ @typeName(*const Context) ++ ", but is " ++ @typeName(Self);
-                                    errors = errors ++ lazy.deep_prefix ++ "Note: Cannot be non-const because it is passed by const pointer.";
-                                }
-                            }
-                        } else {
-                            if (!emitted_signature) {
-                                errors = errors ++ lazy.err_invalid_eql_signature;
-                                emitted_signature = true;
-                            }
-                            errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context);
-                            if (allow_const_ptr) {
-                                errors = errors ++ " or " ++ @typeName(*const Context);
-                                if (allow_mutable_ptr) {
-                                    errors = errors ++ " or " ++ @typeName(*Context);
-                                }
-                            }
-                            errors = errors ++ ", but is " ++ @typeName(Self);
-                        }
-                    }
-                    if (func.params[1].type.? != PseudoKey) {
-                        if (!emitted_signature) {
-                            errors = errors ++ lazy.err_invalid_eql_signature;
-                            emitted_signature = true;
-                        }
-                        errors = errors ++ lazy.deep_prefix ++ "Second parameter must be " ++ @typeName(PseudoKey) ++ ", but is " ++ @typeName(func.params[1].type.?);
-                    }
-                    if (func.params[2].type.? != Key) {
-                        if (!emitted_signature) {
-                            errors = errors ++ lazy.err_invalid_eql_signature;
-                            emitted_signature = true;
-                        }
-                        errors = errors ++ lazy.deep_prefix ++ "Third parameter must be " ++ @typeName(Key) ++ ", but is " ++ @typeName(func.params[2].type.?);
-                    }
-                    if (func.return_type.? != bool) {
-                        if (!emitted_signature) {
-                            errors = errors ++ lazy.err_invalid_eql_signature;
-                            emitted_signature = true;
-                        }
-                        errors = errors ++ lazy.deep_prefix ++ "Return type must be bool, but was " ++ @typeName(func.return_type.?);
-                    }
-                    // If any of these are generic (null), we cannot verify them.
-                    // The call sites check the return type, but cannot check the
-                    // parameters.  This may cause compile errors with generic hash/eql functions.
-                }
-            } else {
-                errors = errors ++ lazy.err_invalid_eql_signature;
-            }
-        } else {
-            errors = errors ++ lazy.prefix ++ @typeName(Context) ++ " must declare a eql function with signature " ++ lazy.eql_signature;
-        }
-
-        if (errors.len != 0) {
-            // errors begins with a newline (from lazy.prefix)
-            @compileError("Problems found with hash context type " ++ @typeName(Context) ++ ":" ++ errors);
-        }
-    }
-}
 
 /// General purpose hash table.
 /// No order is guaranteed and any modification invalidates live iterators.
@@ -372,10 +141,6 @@ pub fn HashMap(
         unmanaged: Unmanaged,
         allocator: Allocator,
         ctx: Context,
-
-        comptime {
-            verifyContext(Context, K, K, u64, false);
-        }
 
         /// The type of the unmanaged hash map underlying this wrapper
         pub const Unmanaged = HashMapUnmanaged(K, V, Context, max_load_percentage);
@@ -406,7 +171,7 @@ pub fn HashMap(
                 @compileError("Context must be specified! Call initContext(allocator, ctx) instead.");
             }
             return .{
-                .unmanaged = .{},
+                .unmanaged = .empty,
                 .allocator = allocator,
                 .ctx = undefined, // ctx is zero-sized so this is safe.
             };
@@ -415,10 +180,27 @@ pub fn HashMap(
         /// Create a managed hash map with a context
         pub fn initContext(allocator: Allocator, ctx: Context) Self {
             return .{
-                .unmanaged = .{},
+                .unmanaged = .empty,
                 .allocator = allocator,
                 .ctx = ctx,
             };
+        }
+
+        /// Puts the hash map into a state where any method call that would
+        /// cause an existing key or value pointer to become invalidated will
+        /// instead trigger an assertion.
+        ///
+        /// An additional call to `lockPointers` in such state also triggers an
+        /// assertion.
+        ///
+        /// `unlockPointers` returns the hash map to the previous state.
+        pub fn lockPointers(self: *Self) void {
+            self.unmanaged.lockPointers();
+        }
+
+        /// Undoes a call to `lockPointers`.
+        pub fn unlockPointers(self: *Self) void {
+            self.unmanaged.unlockPointers();
         }
 
         /// Release the backing array and invalidate this map.
@@ -459,18 +241,18 @@ pub fn HashMap(
 
         /// Create an iterator over the keys in the map.
         /// The iterator is invalidated if the map is modified.
-        pub fn keyIterator(self: *const Self) KeyIterator {
+        pub fn keyIterator(self: Self) KeyIterator {
             return self.unmanaged.keyIterator();
         }
 
         /// Create an iterator over the values in the map.
         /// The iterator is invalidated if the map is modified.
-        pub fn valueIterator(self: *const Self) ValueIterator {
+        pub fn valueIterator(self: Self) ValueIterator {
             return self.unmanaged.valueIterator();
         }
 
         /// If key exists this function cannot fail.
-        /// If there is an existing item with `key`, then the result
+        /// If there is an existing item with `key`, then the result's
         /// `Entry` pointers point to it, and found_existing is true.
         /// Otherwise, puts a new item with undefined value, and
         /// the `Entry` pointers point to it. Caller should then initialize
@@ -480,7 +262,7 @@ pub fn HashMap(
         }
 
         /// If key exists this function cannot fail.
-        /// If there is an existing item with `key`, then the result
+        /// If there is an existing item with `key`, then the result's
         /// `Entry` pointers point to it, and found_existing is true.
         /// Otherwise, puts a new item with undefined key and value, and
         /// the `Entry` pointers point to it. Caller must then initialize
@@ -489,7 +271,7 @@ pub fn HashMap(
             return self.unmanaged.getOrPutContextAdapted(self.allocator, key, ctx, self.ctx);
         }
 
-        /// If there is an existing item with `key`, then the result
+        /// If there is an existing item with `key`, then the result's
         /// `Entry` pointers point to it, and found_existing is true.
         /// Otherwise, puts a new item with undefined value, and
         /// the `Entry` pointers point to it. Caller should then initialize
@@ -500,7 +282,7 @@ pub fn HashMap(
             return self.unmanaged.getOrPutAssumeCapacityContext(key, self.ctx);
         }
 
-        /// If there is an existing item with `key`, then the result
+        /// If there is an existing item with `key`, then the result's
         /// `Entry` pointers point to it, and found_existing is true.
         /// Otherwise, puts a new item with undefined value, and
         /// the `Entry` pointers point to it. Caller must then initialize
@@ -530,7 +312,7 @@ pub fn HashMap(
 
         /// Returns the number of total elements which may be present before it is
         /// no longer guaranteed that no allocations will be performed.
-        pub fn capacity(self: *Self) Size {
+        pub fn capacity(self: Self) Size {
             return self.unmanaged.capacity();
         }
 
@@ -566,7 +348,7 @@ pub fn HashMap(
         }
 
         /// Inserts a new `Entry` into the hash map, returning the previous one, if any.
-        /// If insertion happuns, asserts there is enough capacity without allocating.
+        /// If insertion happens, asserts there is enough capacity without allocating.
         pub fn fetchPutAssumeCapacity(self: *Self, key: K, value: V) ?KV {
             return self.unmanaged.fetchPutAssumeCapacityContext(key, value, self.ctx);
         }
@@ -639,11 +421,11 @@ pub fn HashMap(
             return self.unmanaged.removeAdapted(key, ctx);
         }
 
-        /// Delete the entry with key pointed to by keyPtr from the hash map.
-        /// keyPtr is assumed to be a valid pointer to a key that is present
+        /// Delete the entry with key pointed to by key_ptr from the hash map.
+        /// key_ptr is assumed to be a valid pointer to a key that is present
         /// in the hash map.
-        pub fn removeByPtr(self: *Self, keyPtr: *K) void {
-            self.unmanaged.removeByPtr(keyPtr);
+        pub fn removeByPtr(self: *Self, key_ptr: *K) void {
+            self.unmanaged.removeByPtr(key_ptr);
         }
 
         /// Creates a copy of this map, using the same allocator
@@ -677,15 +459,31 @@ pub fn HashMap(
         /// Set the map to an empty state, making deinitialization a no-op, and
         /// returning a copy of the original.
         pub fn move(self: *Self) Self {
+            self.unmanaged.pointer_stability.assertUnlocked();
             const result = self.*;
-            self.unmanaged = .{};
+            self.unmanaged = .empty;
             return result;
+        }
+
+        /// Rehash the map, in-place.
+        ///
+        /// Over time, due to the current tombstone-based implementation, a
+        /// HashMap could become fragmented due to the buildup of tombstone
+        /// entries that causes a performance degradation due to excessive
+        /// probing. The kind of pattern that might cause this is a long-lived
+        /// HashMap with repeated inserts and deletes.
+        ///
+        /// After this function is called, there will be no tombstones in
+        /// the HashMap, each of the entries is rehashed and any existing
+        /// key/value pointers into the HashMap are invalidated.
+        pub fn rehash(self: *Self) void {
+            self.unmanaged.rehash(self.ctx);
         }
     };
 }
 
 /// A HashMap based on open addressing and linear probing.
-/// A lookup or modification typically occurs only 2 cache misses.
+/// A lookup or modification typically incurs only 2 cache misses.
 /// No order is guaranteed and any modification invalidates live iterators.
 /// It achieves good performance with quite high load factors (by default,
 /// grow is triggered at 80% full) and only one byte of overhead per element.
@@ -693,6 +491,8 @@ pub fn HashMap(
 /// the price of handling size with u32, which should be reasonable enough
 /// for almost all uses.
 /// Deletions are achieved with tombstones.
+///
+/// Default initialization of this struct is deprecated; use `.empty` instead.
 pub fn HashMapUnmanaged(
     comptime K: type,
     comptime V: type,
@@ -703,10 +503,6 @@ pub fn HashMapUnmanaged(
         @compileError("max_load_percentage must be between 0 and 100.");
     return struct {
         const Self = @This();
-
-        comptime {
-            verifyContext(Context, K, K, u64, false);
-        }
 
         // This is actually a midway pointer to the single buffer containing
         // a `Header` field, the `Metadata`s and `Entry`s.
@@ -727,9 +523,19 @@ pub fn HashMapUnmanaged(
         /// `max_load_percentage`.
         available: Size = 0,
 
+        /// Used to detect memory safety violations.
+        pointer_stability: std.debug.SafetyLock = .{},
+
         // This is purely empirical and not a /very smart magic constant™/.
         /// Capacity of the first grow when bootstrapping the hashmap.
         const minimal_capacity = 8;
+
+        /// A map containing no keys or values.
+        pub const empty: Self = .{
+            .metadata = null,
+            .size = 0,
+            .available = 0,
+        };
 
         // This hashmap is specially designed for sizes that fit in a u32.
         pub const Size = u32;
@@ -777,25 +583,25 @@ pub fn HashMapUnmanaged(
             fingerprint: FingerPrint = free,
             used: u1 = 0,
 
-            const slot_free = @bitCast(u8, Metadata{ .fingerprint = free });
-            const slot_tombstone = @bitCast(u8, Metadata{ .fingerprint = tombstone });
+            const slot_free = @as(u8, @bitCast(Metadata{ .fingerprint = free }));
+            const slot_tombstone = @as(u8, @bitCast(Metadata{ .fingerprint = tombstone }));
 
             pub fn isUsed(self: Metadata) bool {
                 return self.used == 1;
             }
 
             pub fn isTombstone(self: Metadata) bool {
-                return @bitCast(u8, self) == slot_tombstone;
+                return @as(u8, @bitCast(self)) == slot_tombstone;
             }
 
             pub fn isFree(self: Metadata) bool {
-                return @bitCast(u8, self) == slot_free;
+                return @as(u8, @bitCast(self)) == slot_free;
             }
 
             pub fn takeFingerprint(hash: Hash) FingerPrint {
-                const hash_bits = @typeInfo(Hash).Int.bits;
-                const fp_bits = @typeInfo(FingerPrint).Int.bits;
-                return @truncate(FingerPrint, hash >> (hash_bits - fp_bits));
+                const hash_bits = @typeInfo(Hash).int.bits;
+                const fp_bits = @typeInfo(FingerPrint).int.bits;
+                return @as(FingerPrint, @truncate(hash >> (hash_bits - fp_bits)));
             }
 
             pub fn fill(self: *Metadata, fp: FingerPrint) void {
@@ -889,17 +695,35 @@ pub fn HashMapUnmanaged(
             };
         }
 
+        /// Puts the hash map into a state where any method call that would
+        /// cause an existing key or value pointer to become invalidated will
+        /// instead trigger an assertion.
+        ///
+        /// An additional call to `lockPointers` in such state also triggers an
+        /// assertion.
+        ///
+        /// `unlockPointers` returns the hash map to the previous state.
+        pub fn lockPointers(self: *Self) void {
+            self.pointer_stability.lock();
+        }
+
+        /// Undoes a call to `lockPointers`.
+        pub fn unlockPointers(self: *Self) void {
+            self.pointer_stability.unlock();
+        }
+
         fn isUnderMaxLoadPercentage(size: Size, cap: Size) bool {
             return size * 100 < max_load_percentage * cap;
         }
 
         pub fn deinit(self: *Self, allocator: Allocator) void {
+            self.pointer_stability.assertUnlocked();
             self.deallocate(allocator);
             self.* = undefined;
         }
 
         fn capacityForSize(size: Size) Size {
-            var new_cap = @truncate(u32, (@as(u64, size) * 100) / max_load_percentage + 1);
+            var new_cap: u32 = @intCast((@as(u64, size) * 100) / max_load_percentage + 1);
             new_cap = math.ceilPowerOfTwo(u32, new_cap) catch unreachable;
             return new_cap;
         }
@@ -910,6 +734,8 @@ pub fn HashMapUnmanaged(
             return ensureTotalCapacityContext(self, allocator, new_size, undefined);
         }
         pub fn ensureTotalCapacityContext(self: *Self, allocator: Allocator, new_size: Size, ctx: Context) Allocator.Error!void {
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
             if (new_size > self.size)
                 try self.growIfNeeded(allocator, new_size - self.size, ctx);
         }
@@ -924,36 +750,40 @@ pub fn HashMapUnmanaged(
         }
 
         pub fn clearRetainingCapacity(self: *Self) void {
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
             if (self.metadata) |_| {
                 self.initMetadatas();
                 self.size = 0;
-                self.available = @truncate(u32, (self.capacity() * max_load_percentage) / 100);
+                self.available = @truncate((self.capacity() * max_load_percentage) / 100);
             }
         }
 
         pub fn clearAndFree(self: *Self, allocator: Allocator) void {
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
             self.deallocate(allocator);
             self.size = 0;
             self.available = 0;
         }
 
-        pub fn count(self: *const Self) Size {
+        pub fn count(self: Self) Size {
             return self.size;
         }
 
-        fn header(self: *const Self) *Header {
-            return @ptrCast(*Header, @ptrCast([*]Header, @alignCast(@alignOf(Header), self.metadata.?)) - 1);
+        fn header(self: Self) *Header {
+            return @ptrCast(@as([*]Header, @ptrCast(@alignCast(self.metadata.?))) - 1);
         }
 
-        fn keys(self: *const Self) [*]K {
+        fn keys(self: Self) [*]K {
             return self.header().keys;
         }
 
-        fn values(self: *const Self) [*]V {
+        fn values(self: Self) [*]V {
             return self.header().values;
         }
 
-        pub fn capacity(self: *const Self) Size {
+        pub fn capacity(self: Self) Size {
             if (self.metadata == null) return 0;
 
             return self.header().capacity;
@@ -963,7 +793,7 @@ pub fn HashMapUnmanaged(
             return .{ .hm = self };
         }
 
-        pub fn keyIterator(self: *const Self) KeyIterator {
+        pub fn keyIterator(self: Self) KeyIterator {
             if (self.metadata) |metadata| {
                 return .{
                     .len = self.capacity(),
@@ -979,7 +809,7 @@ pub fn HashMapUnmanaged(
             }
         }
 
-        pub fn valueIterator(self: *const Self) ValueIterator {
+        pub fn valueIterator(self: Self) ValueIterator {
             if (self.metadata) |metadata| {
                 return .{
                     .len = self.capacity(),
@@ -1002,9 +832,11 @@ pub fn HashMapUnmanaged(
             return self.putNoClobberContext(allocator, key, value, undefined);
         }
         pub fn putNoClobberContext(self: *Self, allocator: Allocator, key: K, value: V, ctx: Context) Allocator.Error!void {
-            assert(!self.containsContext(key, ctx));
-            try self.growIfNeeded(allocator, 1, ctx);
-
+            {
+                self.pointer_stability.lock();
+                defer self.pointer_stability.unlock();
+                try self.growIfNeeded(allocator, 1, ctx);
+            }
             self.putAssumeCapacityNoClobberContext(key, value, ctx);
         }
 
@@ -1031,9 +863,9 @@ pub fn HashMapUnmanaged(
         pub fn putAssumeCapacityNoClobberContext(self: *Self, key: K, value: V, ctx: Context) void {
             assert(!self.containsContext(key, ctx));
 
-            const hash = ctx.hash(key);
+            const hash: Hash = ctx.hash(key);
             const mask = self.capacity() - 1;
-            var idx = @truncate(usize, hash & mask);
+            var idx: usize = @truncate(hash & mask);
 
             var metadata = self.metadata.? + idx;
             while (metadata[0].isUsed()) {
@@ -1113,6 +945,7 @@ pub fn HashMapUnmanaged(
                 old_key.* = undefined;
                 old_val.* = undefined;
                 self.size -= 1;
+                self.available += 1;
                 return result;
             }
 
@@ -1120,47 +953,30 @@ pub fn HashMapUnmanaged(
         }
 
         /// Find the index containing the data for the given key.
-        /// Whether this function returns null is almost always
-        /// branched on after this function returns, and this function
-        /// returns null/not null from separate code paths.  We
-        /// want the optimizer to remove that branch and instead directly
-        /// fuse the basic blocks after the branch to the basic blocks
-        /// from this function.  To encourage that, this function is
-        /// marked as inline.
-        inline fn getIndex(self: Self, key: anytype, ctx: anytype) ?usize {
-            comptime verifyContext(@TypeOf(ctx), @TypeOf(key), K, Hash, false);
-
+        fn getIndex(self: Self, key: anytype, ctx: anytype) ?usize {
             if (self.size == 0) {
+                // We use cold instead of unlikely to force a jump to this case,
+                // no matter the weight of the opposing side.
+                @branchHint(.cold);
                 return null;
             }
 
             // If you get a compile error on this line, it means that your generic hash
             // function is invalid for these parameters.
-            const hash = ctx.hash(key);
-            // verifyContext can't verify the return type of generic hash functions,
-            // so we need to double-check it here.
-            if (@TypeOf(hash) != Hash) {
-                @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic hash function that returns the wrong type! " ++ @typeName(Hash) ++ " was expected, but found " ++ @typeName(@TypeOf(hash)));
-            }
+            const hash: Hash = ctx.hash(key);
+
             const mask = self.capacity() - 1;
             const fingerprint = Metadata.takeFingerprint(hash);
             // Don't loop indefinitely when there are no empty slots.
             var limit = self.capacity();
-            var idx = @truncate(usize, hash & mask);
+            var idx = @as(usize, @truncate(hash & mask));
 
             var metadata = self.metadata.? + idx;
             while (!metadata[0].isFree() and limit != 0) {
                 if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
                     const test_key = &self.keys()[idx];
-                    // If you get a compile error on this line, it means that your generic eql
-                    // function is invalid for these parameters.
-                    const eql = ctx.eql(key, test_key.*);
-                    // verifyContext can't verify the return type of generic eql functions,
-                    // so we need to double-check it here.
-                    if (@TypeOf(eql) != bool) {
-                        @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic eql function that returns the wrong type! bool was expected, but found " ++ @typeName(@TypeOf(eql)));
-                    }
-                    if (eql) {
+
+                    if (ctx.eql(key, test_key.*)) {
                         return idx;
                     }
                 }
@@ -1284,17 +1100,21 @@ pub fn HashMapUnmanaged(
             return self.getOrPutContextAdapted(allocator, key, key_ctx, undefined);
         }
         pub fn getOrPutContextAdapted(self: *Self, allocator: Allocator, key: anytype, key_ctx: anytype, ctx: Context) Allocator.Error!GetOrPutResult {
-            self.growIfNeeded(allocator, 1, ctx) catch |err| {
-                // If allocation fails, try to do the lookup anyway.
-                // If we find an existing item, we can return it.
-                // Otherwise return the error, we could not add another.
-                const index = self.getIndex(key, key_ctx) orelse return err;
-                return GetOrPutResult{
-                    .key_ptr = &self.keys()[index],
-                    .value_ptr = &self.values()[index],
-                    .found_existing = true,
+            {
+                self.pointer_stability.lock();
+                defer self.pointer_stability.unlock();
+                self.growIfNeeded(allocator, 1, ctx) catch |err| {
+                    // If allocation fails, try to do the lookup anyway.
+                    // If we find an existing item, we can return it.
+                    // Otherwise return the error, we could not add another.
+                    const index = self.getIndex(key, key_ctx) orelse return err;
+                    return GetOrPutResult{
+                        .key_ptr = &self.keys()[index],
+                        .value_ptr = &self.values()[index],
+                        .found_existing = true,
+                    };
                 };
-            };
+            }
             return self.getOrPutAssumeCapacityAdapted(key, key_ctx);
         }
 
@@ -1311,20 +1131,15 @@ pub fn HashMapUnmanaged(
             return result;
         }
         pub fn getOrPutAssumeCapacityAdapted(self: *Self, key: anytype, ctx: anytype) GetOrPutResult {
-            comptime verifyContext(@TypeOf(ctx), @TypeOf(key), K, Hash, false);
 
             // If you get a compile error on this line, it means that your generic hash
             // function is invalid for these parameters.
-            const hash = ctx.hash(key);
-            // verifyContext can't verify the return type of generic hash functions,
-            // so we need to double-check it here.
-            if (@TypeOf(hash) != Hash) {
-                @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic hash function that returns the wrong type! " ++ @typeName(Hash) ++ " was expected, but found " ++ @typeName(@TypeOf(hash)));
-            }
+            const hash: Hash = ctx.hash(key);
+
             const mask = self.capacity() - 1;
             const fingerprint = Metadata.takeFingerprint(hash);
             var limit = self.capacity();
-            var idx = @truncate(usize, hash & mask);
+            var idx = @as(usize, @truncate(hash & mask));
 
             var first_tombstone_idx: usize = self.capacity(); // invalid index
             var metadata = self.metadata.? + idx;
@@ -1333,13 +1148,8 @@ pub fn HashMapUnmanaged(
                     const test_key = &self.keys()[idx];
                     // If you get a compile error on this line, it means that your generic eql
                     // function is invalid for these parameters.
-                    const eql = ctx.eql(key, test_key.*);
-                    // verifyContext can't verify the return type of generic eql functions,
-                    // so we need to double-check it here.
-                    if (@TypeOf(eql) != bool) {
-                        @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic eql function that returns the wrong type! bool was expected, but found " ++ @typeName(@TypeOf(eql)));
-                    }
-                    if (eql) {
+
+                    if (ctx.eql(key, test_key.*)) {
                         return GetOrPutResult{
                             .key_ptr = test_key,
                             .value_ptr = &self.values()[idx],
@@ -1392,15 +1202,15 @@ pub fn HashMapUnmanaged(
         }
 
         /// Return true if there is a value associated with key in the map.
-        pub fn contains(self: *const Self, key: K) bool {
+        pub fn contains(self: Self, key: K) bool {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call containsContext instead.");
             return self.containsContext(key, undefined);
         }
-        pub fn containsContext(self: *const Self, key: K, ctx: Context) bool {
+        pub fn containsContext(self: Self, key: K, ctx: Context) bool {
             return self.containsAdapted(key, ctx);
         }
-        pub fn containsAdapted(self: *const Self, key: anytype, ctx: anytype) bool {
+        pub fn containsAdapted(self: Self, key: anytype, ctx: anytype) bool {
             return self.getIndex(key, ctx) != null;
         }
 
@@ -1432,16 +1242,16 @@ pub fn HashMapUnmanaged(
             return false;
         }
 
-        /// Delete the entry with key pointed to by keyPtr from the hash map.
-        /// keyPtr is assumed to be a valid pointer to a key that is present
+        /// Delete the entry with key pointed to by key_ptr from the hash map.
+        /// key_ptr is assumed to be a valid pointer to a key that is present
         /// in the hash map.
-        pub fn removeByPtr(self: *Self, keyPtr: *K) void {
+        pub fn removeByPtr(self: *Self, key_ptr: *K) void {
             // TODO: replace with pointer subtraction once supported by zig
             // if @sizeOf(K) == 0 then there is at most one item in the hash
-            // map, which is assumed to exist as keyPtr must be valid.  This
+            // map, which is assumed to exist as key_ptr must be valid.  This
             // item must be at index 0.
             const idx = if (@sizeOf(K) > 0)
-                (@ptrToInt(keyPtr) - @ptrToInt(self.keys())) / @sizeOf(K)
+                (@intFromPtr(key_ptr) - @intFromPtr(self.keys())) / @sizeOf(K)
             else
                 0;
 
@@ -1449,15 +1259,15 @@ pub fn HashMapUnmanaged(
         }
 
         fn initMetadatas(self: *Self) void {
-            @memset(@ptrCast([*]u8, self.metadata.?)[0 .. @sizeOf(Metadata) * self.capacity()], 0);
+            @memset(@as([*]u8, @ptrCast(self.metadata.?))[0 .. @sizeOf(Metadata) * self.capacity()], 0);
         }
 
         // This counts the number of occupied slots (not counting tombstones), which is
         // what has to stay under the max_load_percentage of capacity.
-        fn load(self: *const Self) Size {
+        fn load(self: Self) Size {
             const max_load = (self.capacity() * max_load_percentage) / 100;
             assert(max_load >= self.available);
-            return @truncate(Size, max_load - self.available);
+            return @as(Size, @truncate(max_load - self.available));
         }
 
         fn growIfNeeded(self: *Self, allocator: Allocator, new_count: Size, ctx: Context) Allocator.Error!void {
@@ -1472,19 +1282,19 @@ pub fn HashMapUnmanaged(
             return self.cloneContext(allocator, @as(Context, undefined));
         }
         pub fn cloneContext(self: Self, allocator: Allocator, new_ctx: anytype) Allocator.Error!HashMapUnmanaged(K, V, @TypeOf(new_ctx), max_load_percentage) {
-            var other = HashMapUnmanaged(K, V, @TypeOf(new_ctx), max_load_percentage){};
+            var other: HashMapUnmanaged(K, V, @TypeOf(new_ctx), max_load_percentage) = .empty;
             if (self.size == 0)
                 return other;
 
             const new_cap = capacityForSize(self.size);
             try other.allocate(allocator, new_cap);
             other.initMetadatas();
-            other.available = @truncate(u32, (new_cap * max_load_percentage) / 100);
+            other.available = @truncate((new_cap * max_load_percentage) / 100);
 
             var i: Size = 0;
             var metadata = self.metadata.?;
-            var keys_ptr = self.keys();
-            var values_ptr = self.values();
+            const keys_ptr = self.keys();
+            const values_ptr = self.values();
             while (i < self.capacity()) : (i += 1) {
                 if (metadata[i].isUsed()) {
                     other.putAssumeCapacityNoClobberContext(keys_ptr[i], values_ptr[i], new_ctx);
@@ -1499,73 +1309,165 @@ pub fn HashMapUnmanaged(
         /// Set the map to an empty state, making deinitialization a no-op, and
         /// returning a copy of the original.
         pub fn move(self: *Self) Self {
+            self.pointer_stability.assertUnlocked();
             const result = self.*;
-            self.* = .{};
+            self.* = .empty;
             return result;
         }
 
+        /// Rehash the map, in-place.
+        ///
+        /// Over time, due to the current tombstone-based implementation, a
+        /// HashMap could become fragmented due to the buildup of tombstone
+        /// entries that causes a performance degradation due to excessive
+        /// probing. The kind of pattern that might cause this is a long-lived
+        /// HashMap with repeated inserts and deletes.
+        ///
+        /// After this function is called, there will be no tombstones in
+        /// the HashMap, each of the entries is rehashed and any existing
+        /// key/value pointers into the HashMap are invalidated.
+        pub fn rehash(self: *Self, ctx: anytype) void {
+            const mask = self.capacity() - 1;
+
+            var metadata = self.metadata.?;
+            var keys_ptr = self.keys();
+            var values_ptr = self.values();
+            var curr: Size = 0;
+
+            // While we are re-hashing every slot, we will use the
+            // fingerprint to mark used buckets as being used and either free
+            // (needing to be rehashed) or tombstone (already rehashed).
+
+            while (curr < self.capacity()) : (curr += 1) {
+                metadata[curr].fingerprint = Metadata.free;
+            }
+
+            // Now iterate over all the buckets, rehashing them
+
+            curr = 0;
+            while (curr < self.capacity()) {
+                if (!metadata[curr].isUsed()) {
+                    assert(metadata[curr].isFree());
+                    curr += 1;
+                    continue;
+                }
+
+                const hash = ctx.hash(keys_ptr[curr]);
+                const fingerprint = Metadata.takeFingerprint(hash);
+                var idx = @as(usize, @truncate(hash & mask));
+
+                // For each bucket, rehash to an index:
+                // 1) before the cursor, probed into a free slot, or
+                // 2) equal to the cursor, no need to move, or
+                // 3) ahead of the cursor, probing over already rehashed
+
+                while ((idx < curr and metadata[idx].isUsed()) or
+                    (idx > curr and metadata[idx].fingerprint == Metadata.tombstone))
+                {
+                    idx = (idx + 1) & mask;
+                }
+
+                if (idx < curr) {
+                    assert(metadata[idx].isFree());
+                    metadata[idx].fill(fingerprint);
+                    keys_ptr[idx] = keys_ptr[curr];
+                    values_ptr[idx] = values_ptr[curr];
+
+                    metadata[curr].used = 0;
+                    assert(metadata[curr].isFree());
+                    keys_ptr[curr] = undefined;
+                    values_ptr[curr] = undefined;
+
+                    curr += 1;
+                } else if (idx == curr) {
+                    metadata[idx].fingerprint = fingerprint;
+                    curr += 1;
+                } else {
+                    assert(metadata[idx].fingerprint != Metadata.tombstone);
+                    metadata[idx].fingerprint = Metadata.tombstone;
+                    if (metadata[idx].isUsed()) {
+                        std.mem.swap(K, &keys_ptr[curr], &keys_ptr[idx]);
+                        std.mem.swap(V, &values_ptr[curr], &values_ptr[idx]);
+                    } else {
+                        metadata[idx].used = 1;
+                        keys_ptr[idx] = keys_ptr[curr];
+                        values_ptr[idx] = values_ptr[curr];
+
+                        metadata[curr].fingerprint = Metadata.free;
+                        metadata[curr].used = 0;
+                        keys_ptr[curr] = undefined;
+                        values_ptr[curr] = undefined;
+
+                        curr += 1;
+                    }
+                }
+            }
+        }
+
         fn grow(self: *Self, allocator: Allocator, new_capacity: Size, ctx: Context) Allocator.Error!void {
-            @setCold(true);
-            const new_cap = std.math.max(new_capacity, minimal_capacity);
+            @branchHint(.cold);
+            const new_cap = @max(new_capacity, minimal_capacity);
             assert(new_cap > self.capacity());
             assert(std.math.isPowerOfTwo(new_cap));
 
-            var map = Self{};
-            defer map.deinit(allocator);
+            var map: Self = .{};
             try map.allocate(allocator, new_cap);
+            errdefer comptime unreachable;
+            map.pointer_stability.lock();
             map.initMetadatas();
-            map.available = @truncate(u32, (new_cap * max_load_percentage) / 100);
+            map.available = @truncate((new_cap * max_load_percentage) / 100);
 
             if (self.size != 0) {
                 const old_capacity = self.capacity();
-                var i: Size = 0;
-                var metadata = self.metadata.?;
-                var keys_ptr = self.keys();
-                var values_ptr = self.values();
-                while (i < old_capacity) : (i += 1) {
-                    if (metadata[i].isUsed()) {
-                        map.putAssumeCapacityNoClobberContext(keys_ptr[i], values_ptr[i], ctx);
-                        if (map.size == self.size)
-                            break;
-                    }
+                for (
+                    self.metadata.?[0..old_capacity],
+                    self.keys()[0..old_capacity],
+                    self.values()[0..old_capacity],
+                ) |m, k, v| {
+                    if (!m.isUsed()) continue;
+                    map.putAssumeCapacityNoClobberContext(k, v, ctx);
+                    if (map.size == self.size) break;
                 }
             }
 
             self.size = 0;
+            self.pointer_stability = .{};
             std.mem.swap(Self, self, &map);
+            map.deinit(allocator);
         }
 
         fn allocate(self: *Self, allocator: Allocator, new_capacity: Size) Allocator.Error!void {
             const header_align = @alignOf(Header);
             const key_align = if (@sizeOf(K) == 0) 1 else @alignOf(K);
             const val_align = if (@sizeOf(V) == 0) 1 else @alignOf(V);
-            const max_align = comptime math.max3(header_align, key_align, val_align);
+            const max_align = comptime @max(header_align, key_align, val_align);
 
-            const meta_size = @sizeOf(Header) + new_capacity * @sizeOf(Metadata);
+            const new_cap: usize = new_capacity;
+            const meta_size = @sizeOf(Header) + new_cap * @sizeOf(Metadata);
             comptime assert(@alignOf(Metadata) == 1);
 
-            const keys_start = std.mem.alignForward(meta_size, key_align);
-            const keys_end = keys_start + new_capacity * @sizeOf(K);
+            const keys_start = std.mem.alignForward(usize, meta_size, key_align);
+            const keys_end = keys_start + new_cap * @sizeOf(K);
 
-            const vals_start = std.mem.alignForward(keys_end, val_align);
-            const vals_end = vals_start + new_capacity * @sizeOf(V);
+            const vals_start = std.mem.alignForward(usize, keys_end, val_align);
+            const vals_end = vals_start + new_cap * @sizeOf(V);
 
-            const total_size = std.mem.alignForward(vals_end, max_align);
+            const total_size = std.mem.alignForward(usize, vals_end, max_align);
 
             const slice = try allocator.alignedAlloc(u8, max_align, total_size);
-            const ptr = @ptrToInt(slice.ptr);
+            const ptr: [*]u8 = @ptrCast(slice.ptr);
 
             const metadata = ptr + @sizeOf(Header);
 
-            const hdr = @intToPtr(*Header, ptr);
+            const hdr = @as(*Header, @ptrCast(@alignCast(ptr)));
             if (@sizeOf([*]V) != 0) {
-                hdr.values = @intToPtr([*]V, ptr + vals_start);
+                hdr.values = @ptrCast(@alignCast((ptr + vals_start)));
             }
             if (@sizeOf([*]K) != 0) {
-                hdr.keys = @intToPtr([*]K, ptr + keys_start);
+                hdr.keys = @ptrCast(@alignCast((ptr + keys_start)));
             }
             hdr.capacity = new_capacity;
-            self.metadata = @intToPtr([*]Metadata, metadata);
+            self.metadata = @ptrCast(@alignCast(metadata));
         }
 
         fn deallocate(self: *Self, allocator: Allocator) void {
@@ -1574,21 +1476,21 @@ pub fn HashMapUnmanaged(
             const header_align = @alignOf(Header);
             const key_align = if (@sizeOf(K) == 0) 1 else @alignOf(K);
             const val_align = if (@sizeOf(V) == 0) 1 else @alignOf(V);
-            const max_align = comptime math.max3(header_align, key_align, val_align);
+            const max_align = comptime @max(header_align, key_align, val_align);
 
-            const cap = self.capacity();
+            const cap: usize = self.capacity();
             const meta_size = @sizeOf(Header) + cap * @sizeOf(Metadata);
             comptime assert(@alignOf(Metadata) == 1);
 
-            const keys_start = std.mem.alignForward(meta_size, key_align);
+            const keys_start = std.mem.alignForward(usize, meta_size, key_align);
             const keys_end = keys_start + cap * @sizeOf(K);
 
-            const vals_start = std.mem.alignForward(keys_end, val_align);
+            const vals_start = std.mem.alignForward(usize, keys_end, val_align);
             const vals_end = vals_start + cap * @sizeOf(V);
 
-            const total_size = std.mem.alignForward(vals_end, max_align);
+            const total_size = std.mem.alignForward(usize, vals_end, max_align);
 
-            const slice = @intToPtr([*]align(max_align) u8, @ptrToInt(self.header()))[0..total_size];
+            const slice = @as([*]align(max_align) u8, @alignCast(@ptrCast(self.header())))[0..total_size];
             allocator.free(slice);
 
             self.metadata = null;
@@ -1604,9 +1506,11 @@ pub fn HashMapUnmanaged(
         }
 
         comptime {
-            if (builtin.mode == .Debug) {
-                _ = dbHelper;
-            }
+            if (!builtin.strip_debug_info) _ = switch (builtin.zig_backend) {
+                .stage2_llvm => &dbHelper,
+                .stage2_x86_64 => KV,
+                else => {},
+            };
         }
     };
 }
@@ -1615,7 +1519,7 @@ const testing = std.testing;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
-test "std.hash_map basic usage" {
+test "basic usage" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1643,7 +1547,7 @@ test "std.hash_map basic usage" {
     try expectEqual(total, sum);
 }
 
-test "std.hash_map ensureTotalCapacity" {
+test "ensureTotalCapacity" {
     var map = AutoHashMap(i32, i32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1658,7 +1562,7 @@ test "std.hash_map ensureTotalCapacity" {
     try testing.expect(initial_capacity == map.capacity());
 }
 
-test "std.hash_map ensureUnusedCapacity with tombstones" {
+test "ensureUnusedCapacity with tombstones" {
     var map = AutoHashMap(i32, i32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1670,7 +1574,7 @@ test "std.hash_map ensureUnusedCapacity with tombstones" {
     }
 }
 
-test "std.hash_map clearRetainingCapacity" {
+test "clearRetainingCapacity" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1695,7 +1599,7 @@ test "std.hash_map clearRetainingCapacity" {
     try expect(!map.contains(1));
 }
 
-test "std.hash_map grow" {
+test "grow" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1721,7 +1625,7 @@ test "std.hash_map grow" {
     }
 }
 
-test "std.hash_map clone" {
+test "clone" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1741,9 +1645,25 @@ test "std.hash_map clone" {
     try expectEqual(b.get(1).?, 1);
     try expectEqual(b.get(2).?, 2);
     try expectEqual(b.get(3).?, 3);
+
+    var original = AutoHashMap(i32, i32).init(std.testing.allocator);
+    defer original.deinit();
+
+    var i: u8 = 0;
+    while (i < 10) : (i += 1) {
+        try original.putNoClobber(i, i * 10);
+    }
+
+    var copy = try original.clone();
+    defer copy.deinit();
+
+    i = 0;
+    while (i < 10) : (i += 1) {
+        try testing.expect(copy.get(i).? == i * 10);
+    }
 }
 
-test "std.hash_map ensureTotalCapacity with existing elements" {
+test "ensureTotalCapacity with existing elements" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1756,7 +1676,7 @@ test "std.hash_map ensureTotalCapacity with existing elements" {
     try expectEqual(map.capacity(), 128);
 }
 
-test "std.hash_map ensureTotalCapacity satisfies max load factor" {
+test "ensureTotalCapacity satisfies max load factor" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1764,7 +1684,7 @@ test "std.hash_map ensureTotalCapacity satisfies max load factor" {
     try expectEqual(map.capacity(), 256);
 }
 
-test "std.hash_map remove" {
+test "remove" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1796,7 +1716,7 @@ test "std.hash_map remove" {
     }
 }
 
-test "std.hash_map reverse removes" {
+test "reverse removes" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1818,7 +1738,7 @@ test "std.hash_map reverse removes" {
     try expectEqual(map.count(), 0);
 }
 
-test "std.hash_map multiple removes on same metadata" {
+test "multiple removes on same metadata" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1855,7 +1775,7 @@ test "std.hash_map multiple removes on same metadata" {
     }
 }
 
-test "std.hash_map put and remove loop in random order" {
+test "put and remove loop in random order" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1869,7 +1789,7 @@ test "std.hash_map put and remove loop in random order" {
     while (i < size) : (i += 1) {
         try keys.append(i);
     }
-    var prng = std.rand.DefaultPrng.init(0);
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
     const random = prng.random();
 
     while (i < iterations) : (i += 1) {
@@ -1887,7 +1807,7 @@ test "std.hash_map put and remove loop in random order" {
     }
 }
 
-test "std.hash_map remove one million elements in random order" {
+test "remove one million elements in random order" {
     const Map = AutoHashMap(u32, u32);
     const n = 1000 * 1000;
     var map = Map.init(std.heap.page_allocator);
@@ -1901,7 +1821,7 @@ test "std.hash_map remove one million elements in random order" {
         keys.append(i) catch unreachable;
     }
 
-    var prng = std.rand.DefaultPrng.init(0);
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
     const random = prng.random();
     random.shuffle(u32, keys.items);
 
@@ -1917,7 +1837,7 @@ test "std.hash_map remove one million elements in random order" {
     }
 }
 
-test "std.hash_map put" {
+test "put" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1942,7 +1862,7 @@ test "std.hash_map put" {
     }
 }
 
-test "std.hash_map putAssumeCapacity" {
+test "putAssumeCapacity" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1972,7 +1892,7 @@ test "std.hash_map putAssumeCapacity" {
     try expectEqual(sum, 20);
 }
 
-test "std.hash_map repeat putAssumeCapacity/remove" {
+test "repeat putAssumeCapacity/remove" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -2004,7 +1924,7 @@ test "std.hash_map repeat putAssumeCapacity/remove" {
     try expectEqual(map.unmanaged.count(), limit);
 }
 
-test "std.hash_map getOrPut" {
+test "getOrPut" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -2027,7 +1947,7 @@ test "std.hash_map getOrPut" {
     try expectEqual(sum, 30);
 }
 
-test "std.hash_map basic hash map usage" {
+test "basic hash map usage" {
     var map = AutoHashMap(i32, i32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -2072,25 +1992,7 @@ test "std.hash_map basic hash map usage" {
     try testing.expect(map.remove(3) == true);
 }
 
-test "std.hash_map clone" {
-    var original = AutoHashMap(i32, i32).init(std.testing.allocator);
-    defer original.deinit();
-
-    var i: u8 = 0;
-    while (i < 10) : (i += 1) {
-        try original.putNoClobber(i, i * 10);
-    }
-
-    var copy = try original.clone();
-    defer copy.deinit();
-
-    i = 0;
-    while (i < 10) : (i += 1) {
-        try testing.expect(copy.get(i).? == i * 10);
-    }
-}
-
-test "std.hash_map getOrPutAdapted" {
+test "getOrPutAdapted" {
     const AdaptedContext = struct {
         fn eql(self: @This(), adapted_key: []const u8, test_key: u64) bool {
             _ = self;
@@ -2139,7 +2041,7 @@ test "std.hash_map getOrPutAdapted" {
     }
 }
 
-test "std.hash_map ensureUnusedCapacity" {
+test "ensureUnusedCapacity" {
     var map = AutoHashMap(u64, u64).init(testing.allocator);
     defer map.deinit();
 
@@ -2152,7 +2054,7 @@ test "std.hash_map ensureUnusedCapacity" {
     try testing.expectEqual(capacity, map.capacity());
 }
 
-test "std.hash_map removeByPtr" {
+test "removeByPtr" {
     var map = AutoHashMap(i32, u64).init(testing.allocator);
     defer map.deinit();
 
@@ -2167,10 +2069,10 @@ test "std.hash_map removeByPtr" {
 
     i = 0;
     while (i < 10) : (i += 1) {
-        const keyPtr = map.getKeyPtr(i);
-        try testing.expect(keyPtr != null);
+        const key_ptr = map.getKeyPtr(i);
+        try testing.expect(key_ptr != null);
 
-        if (keyPtr) |ptr| {
+        if (key_ptr) |ptr| {
             map.removeByPtr(ptr);
         }
     }
@@ -2178,7 +2080,7 @@ test "std.hash_map removeByPtr" {
     try testing.expect(map.count() == 0);
 }
 
-test "std.hash_map removeByPtr 0 sized key" {
+test "removeByPtr 0 sized key" {
     var map = AutoHashMap(u0, u64).init(testing.allocator);
     defer map.deinit();
 
@@ -2186,12 +2088,70 @@ test "std.hash_map removeByPtr 0 sized key" {
 
     try testing.expect(map.count() == 1);
 
-    const keyPtr = map.getKeyPtr(0);
-    try testing.expect(keyPtr != null);
+    const key_ptr = map.getKeyPtr(0);
+    try testing.expect(key_ptr != null);
 
-    if (keyPtr) |ptr| {
+    if (key_ptr) |ptr| {
         map.removeByPtr(ptr);
     }
 
     try testing.expect(map.count() == 0);
+}
+
+test "repeat fetchRemove" {
+    var map: AutoHashMapUnmanaged(u64, void) = .empty;
+    defer map.deinit(testing.allocator);
+
+    try map.ensureTotalCapacity(testing.allocator, 4);
+
+    map.putAssumeCapacity(0, {});
+    map.putAssumeCapacity(1, {});
+    map.putAssumeCapacity(2, {});
+    map.putAssumeCapacity(3, {});
+
+    // fetchRemove() should make slots available.
+    var i: usize = 0;
+    while (i < 10) : (i += 1) {
+        try testing.expect(map.fetchRemove(3) != null);
+        map.putAssumeCapacity(3, {});
+    }
+
+    try testing.expect(map.get(0) != null);
+    try testing.expect(map.get(1) != null);
+    try testing.expect(map.get(2) != null);
+    try testing.expect(map.get(3) != null);
+}
+
+test "getOrPut allocation failure" {
+    var map: std.StringHashMapUnmanaged(void) = .empty;
+    try testing.expectError(error.OutOfMemory, map.getOrPut(std.testing.failing_allocator, "hello"));
+}
+
+test "std.hash_map rehash" {
+    var map = AutoHashMap(usize, usize).init(std.testing.allocator);
+    defer map.deinit();
+
+    var prng = std.Random.DefaultPrng.init(0);
+    const random = prng.random();
+
+    const count = 6 * random.intRangeLessThan(u32, 100_000, 500_000);
+
+    for (0..count) |i| {
+        try map.put(i, i);
+        if (i % 3 == 0) {
+            try expectEqual(map.remove(i), true);
+        }
+    }
+
+    map.rehash();
+
+    try expectEqual(map.count(), count * 2 / 3);
+
+    for (0..count) |i| {
+        if (i % 3 == 0) {
+            try expectEqual(map.get(i), null);
+        } else {
+            try expectEqual(map.get(i).?, i);
+        }
+    }
 }

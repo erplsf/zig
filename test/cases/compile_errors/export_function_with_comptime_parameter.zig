@@ -1,9 +1,8 @@
-export fn foo(comptime x: anytype, y: i32) i32{
+export fn foo(comptime x: anytype, y: i32) i32 {
     return x + y;
 }
 
 // error
-// backend=stage2
-// target=native
+// target=x86_64-linux
 //
-// :1:15: error: comptime parameters not allowed in function with calling convention 'C'
+// :1:15: error: comptime parameters not allowed in function with calling convention 'x86_64_sysv'

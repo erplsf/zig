@@ -5,14 +5,20 @@ pub fn build(b: *std.Build) void {
     b.default_step = test_step;
 
     const optimize = std.builtin.OptimizeMode.Debug;
-    const target = std.zig.CrossTarget{};
+    const target = b.graph.host;
 
     const main = b.addExecutable(.{
         .name = "main",
-        .root_source_file = .{ .path = "main.zig" },
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .optimize = optimize,
+            .target = target,
+            .strip = true,
+        }),
     });
-    main.strip = true;
+
+    // TODO: actually check the output
+    _ = main.getEmittedBin();
+
     test_step.dependOn(&main.step);
 }

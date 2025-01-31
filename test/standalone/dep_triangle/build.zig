@@ -6,20 +6,26 @@ pub fn build(b: *std.Build) void {
 
     const optimize: std.builtin.OptimizeMode = .Debug;
 
-    const shared = b.createModule(.{
-        .source_file = .{ .path = "shared.zig" },
+    const main_mod = b.createModule(.{
+        .root_source_file = b.path("test.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
     });
+    const foo_mod = b.createModule(.{
+        .root_source_file = b.path("foo.zig"),
+    });
+    const shared_mod = b.createModule(.{
+        .root_source_file = b.path("shared.zig"),
+    });
+
+    main_mod.addImport("foo", foo_mod);
+    main_mod.addImport("shared", shared_mod);
+    foo_mod.addImport("shared", shared_mod);
 
     const exe = b.addExecutable(.{
         .name = "test",
-        .root_source_file = .{ .path = "test.zig" },
-        .optimize = optimize,
+        .root_module = main_mod,
     });
-    exe.addAnonymousModule("foo", .{
-        .source_file = .{ .path = "foo.zig" },
-        .dependencies = &.{.{ .name = "shared", .module = shared }},
-    });
-    exe.addModule("shared", shared);
 
     const run = b.addRunArtifact(exe);
     test_step.dependOn(&run.step);

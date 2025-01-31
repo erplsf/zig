@@ -13,8 +13,8 @@ const Complex = cmath.Complex;
 const ldexp_cexp = @import("ldexp.zig").ldexp_cexp;
 
 /// Returns the hyperbolic arc-cosine of z.
-pub fn cosh(z: anytype) Complex(@TypeOf(z.re)) {
-    const T = @TypeOf(z.re);
+pub fn cosh(z: anytype) Complex(@TypeOf(z.re, z.im)) {
+    const T = @TypeOf(z.re, z.im);
     return switch (T) {
         f32 => cosh32(z),
         f64 => cosh64(z),
@@ -26,15 +26,15 @@ fn cosh32(z: Complex(f32)) Complex(f32) {
     const x = z.re;
     const y = z.im;
 
-    const hx = @bitCast(u32, x);
+    const hx: u32 = @bitCast(x);
     const ix = hx & 0x7fffffff;
 
-    const hy = @bitCast(u32, y);
+    const hy: u32 = @bitCast(y);
     const iy = hy & 0x7fffffff;
 
     if (ix < 0x7f800000 and iy < 0x7f800000) {
         if (iy == 0) {
-            return Complex(f32).init(math.cosh(x), y);
+            return Complex(f32).init(math.cosh(x), x * y);
         }
         // small x: normal case
         if (ix < 0x41100000) {
@@ -44,12 +44,12 @@ fn cosh32(z: Complex(f32)) Complex(f32) {
         // |x|>= 9, so cosh(x) ~= exp(|x|)
         if (ix < 0x42b17218) {
             // x < 88.7: exp(|x|) won't overflow
-            const h = @exp(@fabs(x)) * 0.5;
-            return Complex(f32).init(math.copysign(h, x) * @cos(y), h * @sin(y));
+            const h = @exp(@abs(x)) * 0.5;
+            return Complex(f32).init(h * @cos(y), math.copysign(h, x) * @sin(y));
         }
         // x < 192.7: scale to avoid overflow
         else if (ix < 0x4340b1e7) {
-            const v = Complex(f32).init(@fabs(x), y);
+            const v = Complex(f32).init(@abs(x), y);
             const r = ldexp_cexp(v, -1);
             return Complex(f32).init(r.re, r.im * math.copysign(@as(f32, 1.0), x));
         }
@@ -68,7 +68,7 @@ fn cosh32(z: Complex(f32)) Complex(f32) {
         if (hx & 0x7fffff == 0) {
             return Complex(f32).init(x * x, math.copysign(@as(f32, 0.0), x) * y);
         }
-        return Complex(f32).init(x, math.copysign(@as(f32, 0.0), (x + x) * y));
+        return Complex(f32).init(x * x, math.copysign(@as(f32, 0.0), (x + x) * y));
     }
 
     if (ix < 0x7f800000 and iy >= 0x7f800000) {
@@ -89,14 +89,14 @@ fn cosh64(z: Complex(f64)) Complex(f64) {
     const x = z.re;
     const y = z.im;
 
-    const fx = @bitCast(u64, x);
-    const hx = @intCast(u32, fx >> 32);
-    const lx = @truncate(u32, fx);
+    const fx: u64 = @bitCast(x);
+    const hx: u32 = @intCast(fx >> 32);
+    const lx: u32 = @truncate(fx);
     const ix = hx & 0x7fffffff;
 
-    const fy = @bitCast(u64, y);
-    const hy = @intCast(u32, fy >> 32);
-    const ly = @truncate(u32, fy);
+    const fy: u64 = @bitCast(y);
+    const hy: u32 = @intCast(fy >> 32);
+    const ly: u32 = @truncate(fy);
     const iy = hy & 0x7fffffff;
 
     // nearly non-exceptional case where x, y are finite
@@ -112,18 +112,18 @@ fn cosh64(z: Complex(f64)) Complex(f64) {
         // |x|>= 22, so cosh(x) ~= exp(|x|)
         if (ix < 0x40862e42) {
             // x < 710: exp(|x|) won't overflow
-            const h = @exp(@fabs(x)) * 0.5;
+            const h = @exp(@abs(x)) * 0.5;
             return Complex(f64).init(h * @cos(y), math.copysign(h, x) * @sin(y));
         }
         // x < 1455: scale to avoid overflow
         else if (ix < 0x4096bbaa) {
-            const v = Complex(f64).init(@fabs(x), y);
+            const v = Complex(f64).init(@abs(x), y);
             const r = ldexp_cexp(v, -1);
             return Complex(f64).init(r.re, r.im * math.copysign(@as(f64, 1.0), x));
         }
         // x >= 1455: result always overflows
         else {
-            const h = 0x1p1023;
+            const h = 0x1p1023 * x;
             return Complex(f64).init(h * h * @cos(y), h * @sin(y));
         }
     }
@@ -153,20 +153,29 @@ fn cosh64(z: Complex(f64)) Complex(f64) {
     return Complex(f64).init((x * x) * (y - y), (x + x) * (y - y));
 }
 
-const epsilon = 0.0001;
-
-test "complex.ccosh32" {
+test cosh32 {
+    const epsilon = math.floatEps(f32);
     const a = Complex(f32).init(5, 3);
     const c = cosh(a);
 
-    try testing.expect(math.approxEqAbs(f32, c.re, -73.467300, epsilon));
-    try testing.expect(math.approxEqAbs(f32, c.im, 10.471557, epsilon));
+    try testing.expectApproxEqAbs(-73.467300, c.re, epsilon);
+    try testing.expectApproxEqAbs(10.471557, c.im, epsilon);
 }
 
-test "complex.ccosh64" {
+test cosh64 {
+    const epsilon = math.floatEps(f64);
     const a = Complex(f64).init(5, 3);
     const c = cosh(a);
 
-    try testing.expect(math.approxEqAbs(f64, c.re, -73.467300, epsilon));
-    try testing.expect(math.approxEqAbs(f64, c.im, 10.471557, epsilon));
+    try testing.expectApproxEqAbs(-73.46729221264526, c.re, epsilon);
+    try testing.expectApproxEqAbs(10.471557674805572, c.im, epsilon);
+}
+
+test "cosh64 musl" {
+    const epsilon = math.floatEps(f64);
+    const a = Complex(f64).init(7.44648873421389e17, 1.6008058402057622e19);
+    const c = cosh(a);
+
+    try testing.expectApproxEqAbs(std.math.inf(f64), c.re, epsilon);
+    try testing.expectApproxEqAbs(std.math.inf(f64), c.im, epsilon);
 }

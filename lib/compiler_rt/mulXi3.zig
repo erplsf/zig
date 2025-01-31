@@ -7,22 +7,22 @@ const native_endian = builtin.cpu.arch.endian();
 pub const panic = common.panic;
 
 comptime {
-    @export(__mulsi3, .{ .name = "__mulsi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__mulsi3, .{ .name = "__mulsi3", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_aeabi) {
-        @export(__aeabi_lmul, .{ .name = "__aeabi_lmul", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__aeabi_lmul, .{ .name = "__aeabi_lmul", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(__muldi3, .{ .name = "__muldi3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__muldi3, .{ .name = "__muldi3", .linkage = common.linkage, .visibility = common.visibility });
     }
     if (common.want_windows_v2u64_abi) {
-        @export(__multi3_windows_x86_64, .{ .name = "__multi3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__multi3_windows_x86_64, .{ .name = "__multi3", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(__multi3, .{ .name = "__multi3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__multi3, .{ .name = "__multi3", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 
 pub fn __mulsi3(a: i32, b: i32) callconv(.C) i32 {
-    var ua = @bitCast(u32, a);
-    var ub = @bitCast(u32, b);
+    var ua: u32 = @bitCast(a);
+    var ub: u32 = @bitCast(b);
     var r: u32 = 0;
 
     while (ua > 0) {
@@ -31,7 +31,7 @@ pub fn __mulsi3(a: i32, b: i32) callconv(.C) i32 {
         ub <<= 1;
     }
 
-    return @bitCast(i32, r);
+    return @bitCast(r);
 }
 
 pub fn __muldi3(a: i64, b: i64) callconv(.C) i64 {
@@ -93,7 +93,7 @@ pub fn __multi3(a: i128, b: i128) callconv(.C) i128 {
 const v2u64 = @Vector(2, u64);
 
 fn __multi3_windows_x86_64(a: v2u64, b: v2u64) callconv(.C) v2u64 {
-    return @bitCast(v2u64, mulX(i128, @bitCast(i128, a), @bitCast(i128, b)));
+    return @bitCast(mulX(i128, @as(i128, @bitCast(a)), @as(i128, @bitCast(b))));
 }
 
 test {

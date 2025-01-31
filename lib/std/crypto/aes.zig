@@ -22,6 +22,7 @@ pub const has_hardware_support =
     (builtin.cpu.arch == .aarch64 and has_armaes);
 
 pub const Block = impl.Block;
+pub const BlockVec = impl.BlockVec;
 pub const AesEncryptCtx = impl.AesEncryptCtx;
 pub const AesDecryptCtx = impl.AesDecryptCtx;
 pub const Aes128 = impl.Aes128;
@@ -47,8 +48,8 @@ test "ctr" {
     };
 
     var out: [exp_out.len]u8 = undefined;
-    var ctx = Aes128.initEnc(key);
-    ctr(AesEncryptCtx(Aes128), ctx, out[0..], in[0..], iv, std.builtin.Endian.Big);
+    const ctx = Aes128.initEnc(key);
+    ctr(AesEncryptCtx(Aes128), ctx, out[0..], in[0..], iv, std.builtin.Endian.big);
     try testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
 }
 

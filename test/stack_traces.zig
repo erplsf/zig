@@ -13,14 +13,14 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         .Debug = .{
             .expect =
             \\error: TheSkyIsFalling
-            \\source.zig:2:5: [address] in main (test)
+            \\source.zig:2:5: [address] in main ([main_file])
             \\    return error.TheSkyIsFalling;
             \\    ^
             \\
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
                 .linux, // defeated by aggressive inlining
             },
@@ -31,6 +31,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\    ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -60,17 +61,17 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         .Debug = .{
             .expect =
             \\error: TheSkyIsFalling
-            \\source.zig:2:5: [address] in foo (test)
+            \\source.zig:2:5: [address] in foo ([main_file])
             \\    return error.TheSkyIsFalling;
             \\    ^
-            \\source.zig:6:5: [address] in main (test)
+            \\source.zig:6:5: [address] in main ([main_file])
             \\    try foo();
             \\    ^
             \\
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
             },
             .expect =
@@ -83,6 +84,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\    ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -118,14 +120,14 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         .Debug = .{
             .expect =
             \\error: UnrelatedError
-            \\source.zig:13:5: [address] in main (test)
+            \\source.zig:13:5: [address] in main ([main_file])
             \\    return error.UnrelatedError;
             \\    ^
             \\
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
                 .linux, // defeated by aggressive inlining
             },
@@ -136,6 +138,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\    ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -169,14 +172,14 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         .Debug = .{
             .expect =
             \\error: UnrelatedError
-            \\source.zig:10:5: [address] in main (test)
+            \\source.zig:10:5: [address] in main ([main_file])
             \\    return error.UnrelatedError;
             \\    ^
             \\
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
                 .linux, // defeated by aggressive inlining
             },
@@ -187,6 +190,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\    ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -220,17 +224,17 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         .Debug = .{
             .expect =
             \\error: TheSkyIsFalling
-            \\source.zig:2:5: [address] in foo (test)
+            \\source.zig:2:5: [address] in foo ([main_file])
             \\    return error.TheSkyIsFalling;
             \\    ^
-            \\source.zig:10:5: [address] in main (test)
+            \\source.zig:10:5: [address] in main ([main_file])
             \\    try foo();
             \\    ^
             \\
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
                 .linux, // defeated by aggressive inlining
             },
@@ -244,6 +248,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\    ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -279,14 +284,14 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         .Debug = .{
             .expect =
             \\error: BadTime
-            \\source.zig:12:5: [address] in main (test)
+            \\source.zig:12:5: [address] in main ([main_file])
             \\    return error.BadTime;
             \\    ^
             \\
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
                 .linux, // defeated by aggressive inlining
             },
@@ -297,6 +302,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\    ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -326,17 +332,17 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         .Debug = .{
             .expect =
             \\error: AndMyCarIsOutOfGas
-            \\source.zig:2:5: [address] in foo (test)
+            \\source.zig:2:5: [address] in foo ([main_file])
             \\    return error.TheSkyIsFalling;
             \\    ^
-            \\source.zig:6:5: [address] in main (test)
+            \\source.zig:6:5: [address] in main ([main_file])
             \\    return foo() catch error.AndMyCarIsOutOfGas;
             \\    ^
             \\
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
                 .linux, // defeated by aggressive inlining
             },
@@ -350,6 +356,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\    ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -384,14 +391,14 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         .Debug = .{
             .expect =
             \\error: SomethingUnrelatedWentWrong
-            \\source.zig:11:5: [address] in main (test)
+            \\source.zig:11:5: [address] in main ([main_file])
             \\    return error.SomethingUnrelatedWentWrong;
             \\    ^
             \\
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
                 .linux, // defeated by aggressive inlining
             },
@@ -402,6 +409,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\    ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -448,20 +456,20 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         .Debug = .{
             .expect =
             \\error: StillUnresolved
-            \\source.zig:1:18: [address] in foo (test)
+            \\source.zig:1:18: [address] in foo ([main_file])
             \\fn foo() !void { return error.TheSkyIsFalling; }
             \\                 ^
-            \\source.zig:2:18: [address] in bar (test)
+            \\source.zig:2:18: [address] in bar ([main_file])
             \\fn bar() !void { return error.InternalError; }
             \\                 ^
-            \\source.zig:23:5: [address] in main (test)
+            \\source.zig:23:5: [address] in main ([main_file])
             \\    return error.StillUnresolved;
             \\    ^
             \\
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
                 .linux, // defeated by aggressive inlining
             },
@@ -478,6 +486,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\    ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -518,20 +527,20 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         .Debug = .{
             .expect =
             \\error: TestExpectedError
-            \\source.zig:9:18: [address] in foo (test)
+            \\source.zig:9:18: [address] in foo ([main_file])
             \\fn foo() !void { return error.Foo; }
             \\                 ^
-            \\source.zig:5:5: [address] in expectError (test)
+            \\source.zig:5:5: [address] in expectError ([main_file])
             \\    return error.TestExpectedError;
             \\    ^
-            \\source.zig:17:5: [address] in main (test)
+            \\source.zig:17:5: [address] in main ([main_file])
             \\    try expectError(error.Bar, foo());
             \\    ^
             \\
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
             },
             .expect =
@@ -547,6 +556,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\    ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -582,20 +592,20 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         .Debug = .{
             .expect =
             \\error: AndMyCarIsOutOfGas
-            \\source.zig:2:5: [address] in foo (test)
+            \\source.zig:2:5: [address] in foo ([main_file])
             \\    return error.TheSkyIsFalling;
             \\    ^
-            \\source.zig:6:5: [address] in bar (test)
+            \\source.zig:6:5: [address] in bar ([main_file])
             \\    return error.AndMyCarIsOutOfGas;
             \\    ^
-            \\source.zig:11:9: [address] in main (test)
+            \\source.zig:11:9: [address] in main ([main_file])
             \\        try bar();
             \\        ^
             \\
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
             },
             .expect =
@@ -611,6 +621,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\        ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -646,20 +657,20 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         .Debug = .{
             .expect =
             \\error: AndMyCarIsOutOfGas
-            \\source.zig:2:5: [address] in foo (test)
+            \\source.zig:2:5: [address] in foo ([main_file])
             \\    return error.TheSkyIsFalling;
             \\    ^
-            \\source.zig:6:5: [address] in bar (test)
+            \\source.zig:6:5: [address] in bar ([main_file])
             \\    return error.AndMyCarIsOutOfGas;
             \\    ^
-            \\source.zig:11:9: [address] in main (test)
+            \\source.zig:11:9: [address] in main ([main_file])
             \\        try bar();
             \\        ^
             \\
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
             },
             .expect =
@@ -675,6 +686,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\        ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -712,23 +724,23 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         .Debug = .{
             .expect =
             \\error: TheSkyIsFalling
-            \\source.zig:10:5: [address] in make_error (test)
+            \\source.zig:10:5: [address] in make_error ([main_file])
             \\    return error.TheSkyIsFalling;
             \\    ^
-            \\source.zig:6:5: [address] in bar (test)
+            \\source.zig:6:5: [address] in bar ([main_file])
             \\    return make_error();
             \\    ^
-            \\source.zig:2:5: [address] in foo (test)
+            \\source.zig:2:5: [address] in foo ([main_file])
             \\    try bar();
             \\    ^
-            \\source.zig:14:5: [address] in main (test)
+            \\source.zig:14:5: [address] in main ([main_file])
             \\    try foo();
             \\    ^
             \\
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
             },
             .expect =
@@ -747,6 +759,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\    ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -763,10 +776,6 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
     });
 
     cases.addCase(.{
-        .exclude_os = .{
-            .openbsd, // integer overflow
-            .windows, // TODO intermittent failures
-        },
         .name = "dumpCurrentStackTrace",
         .source =
         \\const std = @import("std");
@@ -783,13 +792,72 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         \\}
         ,
         .Debug = .{
+            .exclude_os = &.{
+                .openbsd, // integer overflow
+                .windows, // TODO intermittent failures
+            },
             .expect =
-            \\source.zig:7:8: [address] in foo (test)
+            \\source.zig:7:8: [address] in foo ([main_file])
             \\    bar();
             \\       ^
-            \\source.zig:10:8: [address] in main (test)
+            \\source.zig:10:8: [address] in main ([main_file])
             \\    foo();
             \\       ^
+            \\
+            ,
+        },
+    });
+    cases.addCase(.{
+        .name = "error union switch with call operand",
+        .source =
+        \\pub fn main() !void {
+        \\    try foo();
+        \\    return error.TheSkyIsFalling;
+        \\}
+        \\
+        \\noinline fn failure() error{ Fatal, NonFatal }!void {
+        \\    return error.NonFatal;
+        \\}
+        \\
+        \\fn foo() error{Fatal}!void {
+        \\    return failure() catch |err| switch (err) {
+        \\        error.Fatal => return error.Fatal,
+        \\        error.NonFatal => return,
+        \\    };
+        \\}
+        ,
+        .Debug = .{
+            .expect =
+            \\error: TheSkyIsFalling
+            \\source.zig:3:5: [address] in main ([main_file])
+            \\    return error.TheSkyIsFalling;
+            \\    ^
+            \\
+            ,
+        },
+        .ReleaseSafe = .{
+            .exclude_os = &.{
+                .windows, // TODO
+                .linux, // defeated by aggressive inlining
+            },
+            .expect =
+            \\error: TheSkyIsFalling
+            \\source.zig:3:5: [address] in [function]
+            \\    return error.TheSkyIsFalling;
+            \\    ^
+            \\
+            ,
+            .error_tracing = true,
+        },
+        .ReleaseFast = .{
+            .expect =
+            \\error: TheSkyIsFalling
+            \\
+            ,
+        },
+        .ReleaseSmall = .{
+            .expect =
+            \\error: TheSkyIsFalling
             \\
             ,
         },

@@ -1,9 +1,10 @@
+const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 const linux = std.os.linux;
 const SYS = linux.SYS;
-const iovec = std.os.iovec;
-const iovec_const = std.os.iovec_const;
+const iovec = std.posix.iovec;
+const iovec_const = std.posix.iovec_const;
 
 const pid_t = linux.pid_t;
 const uid_t = linux.uid_t;
@@ -18,7 +19,7 @@ const timespec = linux.timespec;
 pub fn syscall0(number: SYS) usize {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize),
-        : [number] "{rax}" (@enumToInt(number)),
+        : [number] "{rax}" (@intFromEnum(number)),
         : "rcx", "r11", "memory"
     );
 }
@@ -26,7 +27,7 @@ pub fn syscall0(number: SYS) usize {
 pub fn syscall1(number: SYS, arg1: usize) usize {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize),
-        : [number] "{rax}" (@enumToInt(number)),
+        : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
         : "rcx", "r11", "memory"
     );
@@ -35,7 +36,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize),
-        : [number] "{rax}" (@enumToInt(number)),
+        : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
         : "rcx", "r11", "memory"
@@ -45,7 +46,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize),
-        : [number] "{rax}" (@enumToInt(number)),
+        : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
           [arg3] "{rdx}" (arg3),
@@ -56,7 +57,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize),
-        : [number] "{rax}" (@enumToInt(number)),
+        : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
           [arg3] "{rdx}" (arg3),
@@ -68,7 +69,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
 pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize),
-        : [number] "{rax}" (@enumToInt(number)),
+        : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
           [arg3] "{rdx}" (arg3),
@@ -89,7 +90,7 @@ pub fn syscall6(
 ) usize {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize),
-        : [number] "{rax}" (@enumToInt(number)),
+        : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
           [arg3] "{rdx}" (arg3),
@@ -100,32 +101,58 @@ pub fn syscall6(
     );
 }
 
-const CloneFn = *const fn (arg: usize) callconv(.C) u8;
-
-/// This matches the libc clone function.
-pub extern fn clone(func: CloneFn, stack: usize, flags: usize, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
+pub fn clone() callconv(.Naked) usize {
+    asm volatile (
+        \\      movl $56,%%eax // SYS_clone
+        \\      movq %%rdi,%%r11
+        \\      movq %%rdx,%%rdi
+        \\      movq %%r8,%%rdx
+        \\      movq %%r9,%%r8
+        \\      movq 8(%%rsp),%%r10
+        \\      movq %%r11,%%r9
+        \\      andq $-16,%%rsi
+        \\      subq $8,%%rsi
+        \\      movq %%rcx,(%%rsi)
+        \\      syscall
+        \\      testq %%rax,%%rax
+        \\      jz 1f
+        \\      retq
+        \\
+        \\1:
+    );
+    if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
+        \\      .cfi_undefined %%rip
+    );
+    asm volatile (
+        \\      xorl %%ebp,%%ebp
+        \\
+        \\      popq %%rdi
+        \\      callq *%%r9
+        \\      movl %%eax,%%edi
+        \\      movl $60,%%eax // SYS_exit
+        \\      syscall
+        \\
+    );
+}
 
 pub const restore = restore_rt;
 
-pub fn restore_rt() callconv(.Naked) void {
+pub fn restore_rt() callconv(.Naked) noreturn {
     switch (@import("builtin").zig_backend) {
         .stage2_c => asm volatile (
             \\ movl %[number], %%eax
             \\ syscall
-            \\ retq
             :
-            : [number] "i" (@enumToInt(SYS.rt_sigreturn)),
+            : [number] "i" (@intFromEnum(SYS.rt_sigreturn)),
             : "rcx", "r11", "memory"
         ),
         else => asm volatile (
             \\ syscall
-            \\ retq
             :
-            : [number] "{rax}" (@enumToInt(SYS.rt_sigreturn)),
+            : [number] "{rax}" (@intFromEnum(SYS.rt_sigreturn)),
             : "rcx", "r11", "memory"
         ),
     }
-    unreachable;
 }
 
 pub const mode_t = usize;
@@ -133,29 +160,6 @@ pub const time_t = isize;
 pub const nlink_t = usize;
 pub const blksize_t = isize;
 pub const blkcnt_t = isize;
-
-pub const O = struct {
-    pub const CREAT = 0o100;
-    pub const EXCL = 0o200;
-    pub const NOCTTY = 0o400;
-    pub const TRUNC = 0o1000;
-    pub const APPEND = 0o2000;
-    pub const NONBLOCK = 0o4000;
-    pub const DSYNC = 0o10000;
-    pub const SYNC = 0o4010000;
-    pub const RSYNC = 0o4010000;
-    pub const DIRECTORY = 0o200000;
-    pub const NOFOLLOW = 0o400000;
-    pub const CLOEXEC = 0o2000000;
-
-    pub const ASYNC = 0o20000;
-    pub const DIRECT = 0o40000;
-    pub const LARGEFILE = 0;
-    pub const NOATIME = 0o1000000;
-    pub const PATH = 0o10000000;
-    pub const TMPFILE = 0o20200000;
-    pub const NDELAY = NONBLOCK;
-};
 
 pub const F = struct {
     pub const DUPFD = 0;
@@ -178,21 +182,6 @@ pub const F = struct {
     pub const RDLCK = 0;
     pub const WRLCK = 1;
     pub const UNLCK = 2;
-};
-
-pub const MAP = struct {
-    /// only give out 32bit addresses
-    pub const @"32BIT" = 0x40;
-    /// stack-like segment
-    pub const GROWSDOWN = 0x0100;
-    /// ETXTBSY
-    pub const DENYWRITE = 0x0800;
-    /// mark it as an executable
-    pub const EXECUTABLE = 0x1000;
-    /// pages are locked
-    pub const LOCKED = 0x2000;
-    /// don't check for reservations
-    pub const NORESERVE = 0x4000;
 };
 
 pub const VDSO = struct {
@@ -234,13 +223,6 @@ pub const REG = struct {
     pub const TRAPNO = 20;
     pub const OLDMASK = 21;
     pub const CR2 = 22;
-};
-
-pub const LOCK = struct {
-    pub const SH = 1;
-    pub const EX = 2;
-    pub const NB = 4;
-    pub const UN = 8;
 };
 
 pub const Flock = extern struct {
@@ -313,13 +295,13 @@ pub const Stat = extern struct {
 };
 
 pub const timeval = extern struct {
-    tv_sec: isize,
-    tv_usec: isize,
+    sec: isize,
+    usec: isize,
 };
 
 pub const timezone = extern struct {
-    tz_minuteswest: i32,
-    tz_dsttime: i32,
+    minuteswest: i32,
+    dsttime: i32,
 };
 
 pub const Elf_Symndx = u32;
@@ -395,3 +377,100 @@ pub const ucontext_t = extern struct {
     sigmask: sigset_t,
     fpregs_mem: [64]usize,
 };
+
+fn gpRegisterOffset(comptime reg_index: comptime_int) usize {
+    return @offsetOf(ucontext_t, "mcontext") + @offsetOf(mcontext_t, "gregs") + @sizeOf(usize) * reg_index;
+}
+
+fn getContextInternal() callconv(.Naked) usize {
+    // TODO: Read GS/FS registers?
+    asm volatile (
+        \\ movq $0, %[flags_offset:c](%%rdi)
+        \\ movq $0, %[link_offset:c](%%rdi)
+        \\ movq %%r8, %[r8_offset:c](%%rdi)
+        \\ movq %%r9, %[r9_offset:c](%%rdi)
+        \\ movq %%r10, %[r10_offset:c](%%rdi)
+        \\ movq %%r11, %[r11_offset:c](%%rdi)
+        \\ movq %%r12, %[r12_offset:c](%%rdi)
+        \\ movq %%r13, %[r13_offset:c](%%rdi)
+        \\ movq %%r14, %[r14_offset:c](%%rdi)
+        \\ movq %%r15, %[r15_offset:c](%%rdi)
+        \\ movq %%rdi, %[rdi_offset:c](%%rdi)
+        \\ movq %%rsi, %[rsi_offset:c](%%rdi)
+        \\ movq %%rbp, %[rbp_offset:c](%%rdi)
+        \\ movq %%rbx, %[rbx_offset:c](%%rdi)
+        \\ movq %%rdx, %[rdx_offset:c](%%rdi)
+        \\ movq %%rax, %[rax_offset:c](%%rdi)
+        \\ movq %%rcx, %[rcx_offset:c](%%rdi)
+        \\ movq (%%rsp), %%rcx
+        \\ movq %%rcx, %[rip_offset:c](%%rdi)
+        \\ leaq 8(%%rsp), %%rcx
+        \\ movq %%rcx, %[rsp_offset:c](%%rdi)
+        \\ pushfq
+        \\ popq %[efl_offset:c](%%rdi)
+        \\ leaq %[fpmem_offset:c](%%rdi), %%rcx
+        \\ movq %%rcx, %[fpstate_offset:c](%%rdi)
+        \\ fnstenv (%%rcx)
+        \\ fldenv (%%rcx)
+        \\ stmxcsr %[mxcsr_offset:c](%%rdi)
+        \\ leaq %[stack_offset:c](%%rdi), %%rsi
+        \\ movq %%rdi, %%r8
+        \\ xorl %%edi, %%edi
+        \\ movl %[sigaltstack], %%eax
+        \\ syscall
+        \\ testq %%rax, %%rax
+        \\ jnz 0f
+        \\ movl %[sigprocmask], %%eax
+        \\ xorl %%esi, %%esi
+        \\ leaq %[sigmask_offset:c](%%r8), %%rdx
+        \\ movl %[sigset_size], %%r10d
+        \\ syscall
+        \\0:
+        \\ retq
+        :
+        : [flags_offset] "i" (@offsetOf(ucontext_t, "flags")),
+          [link_offset] "i" (@offsetOf(ucontext_t, "link")),
+          [r8_offset] "i" (comptime gpRegisterOffset(REG.R8)),
+          [r9_offset] "i" (comptime gpRegisterOffset(REG.R9)),
+          [r10_offset] "i" (comptime gpRegisterOffset(REG.R10)),
+          [r11_offset] "i" (comptime gpRegisterOffset(REG.R11)),
+          [r12_offset] "i" (comptime gpRegisterOffset(REG.R12)),
+          [r13_offset] "i" (comptime gpRegisterOffset(REG.R13)),
+          [r14_offset] "i" (comptime gpRegisterOffset(REG.R14)),
+          [r15_offset] "i" (comptime gpRegisterOffset(REG.R15)),
+          [rdi_offset] "i" (comptime gpRegisterOffset(REG.RDI)),
+          [rsi_offset] "i" (comptime gpRegisterOffset(REG.RSI)),
+          [rbp_offset] "i" (comptime gpRegisterOffset(REG.RBP)),
+          [rbx_offset] "i" (comptime gpRegisterOffset(REG.RBX)),
+          [rdx_offset] "i" (comptime gpRegisterOffset(REG.RDX)),
+          [rax_offset] "i" (comptime gpRegisterOffset(REG.RAX)),
+          [rcx_offset] "i" (comptime gpRegisterOffset(REG.RCX)),
+          [rsp_offset] "i" (comptime gpRegisterOffset(REG.RSP)),
+          [rip_offset] "i" (comptime gpRegisterOffset(REG.RIP)),
+          [efl_offset] "i" (comptime gpRegisterOffset(REG.EFL)),
+          [fpstate_offset] "i" (@offsetOf(ucontext_t, "mcontext") + @offsetOf(mcontext_t, "fpregs")),
+          [fpmem_offset] "i" (@offsetOf(ucontext_t, "fpregs_mem")),
+          [mxcsr_offset] "i" (@offsetOf(ucontext_t, "fpregs_mem") + @offsetOf(fpstate, "mxcsr")),
+          [sigaltstack] "i" (@intFromEnum(linux.SYS.sigaltstack)),
+          [stack_offset] "i" (@offsetOf(ucontext_t, "stack")),
+          [sigprocmask] "i" (@intFromEnum(linux.SYS.rt_sigprocmask)),
+          [sigmask_offset] "i" (@offsetOf(ucontext_t, "sigmask")),
+          [sigset_size] "i" (linux.NSIG / 8),
+        : "cc", "memory", "rax", "rcx", "rdx", "rdi", "rsi", "r8", "r10", "r11"
+    );
+}
+
+pub inline fn getcontext(context: *ucontext_t) usize {
+    // This method is used so that getContextInternal can control
+    // its prologue in order to read RSP from a constant offset
+    // An aligned stack is not needed for getContextInternal.
+    var clobber_rdi: usize = undefined;
+    return asm volatile (
+        \\ callq %[getContextInternal:P]
+        : [_] "={rax}" (-> usize),
+          [_] "={rdi}" (clobber_rdi),
+        : [_] "{rdi}" (context),
+          [getContextInternal] "X" (&getContextInternal),
+        : "cc", "memory", "rcx", "rdx", "rsi", "r8", "r10", "r11"
+    );
+}

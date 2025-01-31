@@ -1,5 +1,5 @@
 const Tag = @Type(.{
-    .Enum = .{
+    .@"enum" = .{
         .tag_type = bool,
         .fields = &.{},
         .decls = &.{},
@@ -7,7 +7,7 @@ const Tag = @Type(.{
     },
 });
 export fn entry() void {
-    _ = @intToEnum(Tag, 0);
+    _ = @as(Tag, @enumFromInt(0));
 }
 
 // error

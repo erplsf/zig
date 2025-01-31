@@ -1,5 +1,5 @@
 /* Get file status.  Linux version.
-   Copyright (C) 2020-2021 Free Software Foundation, Inc.
+   Copyright (C) 2020-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -22,24 +22,12 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <string.h>
-#include <kernel_stat.h>
 #include <sysdep.h>
 #include <time.h>
-#include <kstat_cp.h>
-#include <stat_t64_cp.h>
 #include <sys/sysmacros.h>
+#include <internal-stat.h>
 
-#if __TIMESIZE == 64 \
-     && (__WORDSIZE == 32 \
-     && (!defined __SYSCALL_WORDSIZE || __SYSCALL_WORDSIZE == 32))
-/* Sanity check to avoid newer 32-bit ABI to support non-LFS calls.  */
-_Static_assert (sizeof (__off_t) == sizeof (__off64_t),
-                "__blkcnt_t and __blkcnt64_t must match");
-_Static_assert (sizeof (__ino_t) == sizeof (__ino64_t),
-                "__blkcnt_t and __blkcnt64_t must match");
-_Static_assert (sizeof (__blkcnt_t) == sizeof (__blkcnt64_t),
-                "__blkcnt_t and __blkcnt64_t must match");
-#endif
+#if FSTATAT_USE_STATX
 
 static inline int
 fstatat64_time64_statx (int fd, const char *file, struct __stat64_t64 *buf,
@@ -74,7 +62,11 @@ fstatat64_time64_statx (int fd, const char *file, struct __stat64_t64 *buf,
 
   return r;
 }
+#endif
 
+/* Only statx supports 64-bit timestamps for 32-bit architectures with
+   __ASSUME_STATX, so there is no point in building the fallback.  */
+#if !FSTATAT_USE_STATX || (FSTATAT_USE_STATX && !defined __ASSUME_STATX)
 static inline struct __timespec64
 valid_timespec_to_timespec64 (const struct timespec ts)
 {
@@ -94,7 +86,7 @@ fstatat64_time64_stat (int fd, const char *file, struct __stat64_t64 *buf,
 
 #if XSTAT_IS_XSTAT64
 # ifdef __NR_newfstatat
-  /* 64-bit kABI, e.g. aarch64, ia64, powerpc64*, s390x, riscv64, and
+  /* 64-bit kABI, e.g. aarch64, powerpc64*, s390x, riscv64, and
      x86_64.  */
   r = INTERNAL_SYSCALL_CALL (newfstatat, fd, file, buf, flag);
 # elif defined __NR_fstatat64
@@ -146,13 +138,6 @@ fstatat64_time64_stat (int fd, const char *file, struct __stat64_t64 *buf,
 
   return r;
 }
-
-#if (__WORDSIZE == 32 \
-     && (!defined __SYSCALL_WORDSIZE || __SYSCALL_WORDSIZE == 32)) \
-     || defined STAT_HAS_TIME32
-# define FSTATAT_USE_STATX 1
-#else
-# define FSTATAT_USE_STATX 0
 #endif
 
 int

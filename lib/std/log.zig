@@ -18,17 +18,17 @@
 //! ```
 //! const std = @import("std");
 //!
-//! pub const std_options = struct {
+//! pub const std_options = .{
 //!     // Set the log level to info
-//!     pub const log_level = .info;
+//!     .log_level = .info,
 //!
 //!     // Define logFn to override the std implementation
-//!     pub const logFn = myLogFn;
+//!     .logFn = myLogFn,
 //! };
 //!
 //! pub fn myLogFn(
 //!     comptime level: std.log.Level,
-//!     comptime scope: @TypeOf(.EnumLiteral),
+//!     comptime scope: @Type(.enum_literal),
 //!     comptime format: []const u8,
 //!     args: anytype,
 //! ) void {
@@ -36,7 +36,7 @@
 //!     // .my_project, .nice_library and the default
 //!     const scope_prefix = "(" ++ switch (scope) {
 //!         .my_project, .nice_library, std.log.default_log_scope => @tagName(scope),
-//!         else => if (@enumToInt(level) <= @enumToInt(std.log.Level.err))
+//!         else => if (@intFromEnum(level) <= @intFromEnum(std.log.Level.err))
 //!             @tagName(scope)
 //!         else
 //!             return,
@@ -45,8 +45,8 @@
 //!     const prefix = "[" ++ comptime level.asText() ++ "] " ++ scope_prefix;
 //!
 //!     // Print the message to stderr, silently ignoring any errors
-//!     std.debug.getStderrMutex().lock();
-//!     defer std.debug.getStderrMutex().unlock();
+//!     std.debug.lockStdErr();
+//!     defer std.debug.unlockStdErr();
 //!     const stderr = std.io.getStdErr().writer();
 //!     nosuspend stderr.print(prefix ++ format ++ "\n", args) catch return;
 //! }
@@ -108,7 +108,7 @@ pub const default_level: Level = switch (builtin.mode) {
 const level = std.options.log_level;
 
 pub const ScopeLevel = struct {
-    scope: @Type(.EnumLiteral),
+    scope: @Type(.enum_literal),
     level: Level,
 };
 
@@ -116,7 +116,7 @@ const scope_levels = std.options.log_scope_levels;
 
 fn log(
     comptime message_level: Level,
-    comptime scope: @Type(.EnumLiteral),
+    comptime scope: @Type(.enum_literal),
     comptime format: []const u8,
     args: anytype,
 ) void {
@@ -126,11 +126,11 @@ fn log(
 }
 
 /// Determine if a specific log message level and scope combination are enabled for logging.
-pub fn logEnabled(comptime message_level: Level, comptime scope: @Type(.EnumLiteral)) bool {
+pub fn logEnabled(comptime message_level: Level, comptime scope: @Type(.enum_literal)) bool {
     inline for (scope_levels) |scope_level| {
-        if (scope_level.scope == scope) return @enumToInt(message_level) <= @enumToInt(scope_level.level);
+        if (scope_level.scope == scope) return @intFromEnum(message_level) <= @intFromEnum(scope_level.level);
     }
-    return @enumToInt(message_level) <= @enumToInt(level);
+    return @intFromEnum(message_level) <= @intFromEnum(level);
 }
 
 /// Determine if a specific log message level using the default log scope is enabled for logging.
@@ -142,27 +142,27 @@ pub fn defaultLogEnabled(comptime message_level: Level) bool {
 /// forward log messages to this function.
 pub fn defaultLog(
     comptime message_level: Level,
-    comptime scope: @Type(.EnumLiteral),
+    comptime scope: @Type(.enum_literal),
     comptime format: []const u8,
     args: anytype,
 ) void {
-    if (builtin.os.tag == .freestanding)
-        @compileError(
-            \\freestanding targets do not have I/O configured;
-            \\please provide at least an empty `log` function declaration
-        );
-
     const level_txt = comptime message_level.asText();
     const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
     const stderr = std.io.getStdErr().writer();
-    std.debug.getStderrMutex().lock();
-    defer std.debug.getStderrMutex().unlock();
-    nosuspend stderr.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
+    var bw = std.io.bufferedWriter(stderr);
+    const writer = bw.writer();
+
+    std.debug.lockStdErr();
+    defer std.debug.unlockStdErr();
+    nosuspend {
+        writer.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
+        bw.flush() catch return;
+    }
 }
 
 /// Returns a scoped logging namespace that logs all messages using the scope
 /// provided here.
-pub fn scoped(comptime scope: @Type(.EnumLiteral)) type {
+pub fn scoped(comptime scope: @Type(.enum_literal)) type {
     return struct {
         /// Log an error message. This log level is intended to be used
         /// when something has gone wrong. This might be recoverable or might
@@ -171,7 +171,7 @@ pub fn scoped(comptime scope: @Type(.EnumLiteral)) type {
             comptime format: []const u8,
             args: anytype,
         ) void {
-            @setCold(true);
+            @branchHint(.cold);
             log(.err, scope, format, args);
         }
 

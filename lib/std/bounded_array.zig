@@ -70,6 +70,11 @@ pub fn BoundedArrayAligned(
             self.len = len;
         }
 
+        /// Remove all elements from the slice.
+        pub fn clear(self: *Self) void {
+            self.len = 0;
+        }
+
         /// Copy the content of an existing slice.
         pub fn fromSlice(m: []const T) error{Overflow}!Self {
             var list = try init(m.len);
@@ -114,8 +119,16 @@ pub fn BoundedArrayAligned(
         }
 
         /// Resize the slice, adding `n` new elements, which have `undefined` values.
-        /// The return value is a slice pointing to the uninitialized elements.
+        /// The return value is a pointer to the array of uninitialized elements.
         pub fn addManyAsArray(self: *Self, comptime n: usize) error{Overflow}!*align(alignment) [n]T {
+            const prev_len = self.len;
+            try self.resize(self.len + n);
+            return self.slice()[prev_len..][0..n];
+        }
+
+        /// Resize the slice, adding `n` new elements, which have `undefined` values.
+        /// The return value is a slice pointing to the uninitialized elements.
+        pub fn addManyAsSlice(self: *Self, n: usize) error{Overflow}![]align(alignment) T {
             const prev_len = self.len;
             try self.resize(self.len + n);
             return self.slice()[prev_len..][0..n];
@@ -168,7 +181,7 @@ pub fn BoundedArrayAligned(
             @memcpy(self.slice()[i..][0..items.len], items);
         }
 
-        /// Replace range of elements `slice[start..start+len]` with `new_items`.
+        /// Replace range of elements `slice[start..][0..len]` with `new_items`.
         /// Grows slice if `len < new_items.len`.
         /// Shrinks slice if `len > new_items.len`.
         pub fn replaceRange(
@@ -285,7 +298,7 @@ pub fn BoundedArrayAligned(
     };
 }
 
-test "BoundedArray" {
+test BoundedArray {
     var a = try BoundedArray(u8, 64).init(32);
 
     try testing.expectEqual(a.capacity(), 64);
@@ -380,6 +393,10 @@ test "BoundedArray" {
     try testing.expectEqual(swapped, 0xdd);
     try testing.expectEqual(a.get(0), 0xee);
 
+    const added_slice = try a.addManyAsSlice(3);
+    try testing.expectEqual(added_slice.len, 3);
+    try testing.expectEqual(a.len, 36);
+
     while (a.popOrNull()) |_| {}
     const w = a.writer();
     const s = "hello, this is a test string";
@@ -394,7 +411,7 @@ test "BoundedArrayAligned" {
     try a.append(255);
     try a.append(255);
 
-    const b = @ptrCast(*const [2]u16, a.constSlice().ptr);
+    const b = @as(*const [2]u16, @ptrCast(a.constSlice().ptr));
     try testing.expectEqual(@as(u16, 0), b[0]);
     try testing.expectEqual(@as(u16, 65535), b[1]);
 }

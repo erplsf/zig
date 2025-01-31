@@ -6,23 +6,28 @@ pub fn build(b: *std.Build) void {
     b.default_step = test_step;
 
     const optimize: std.builtin.OptimizeMode = .Debug;
-    const target: std.zig.CrossTarget = .{};
+    const target = b.graph.host;
 
     if (builtin.os.tag == .wasi) return;
 
-    const lib = b.addSharedLibrary(.{
+    const lib = b.addLibrary(.{
+        .linkage = .dynamic,
         .name = "add",
-        .root_source_file = .{ .path = "add.zig" },
-        .version = .{ .major = 1, .minor = 0 },
-        .optimize = optimize,
-        .target = target,
+        .version = .{ .major = 1, .minor = 0, .patch = 0 },
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("add.zig"),
+            .optimize = optimize,
+            .target = target,
+        }),
     });
 
     const main = b.addExecutable(.{
         .name = "main",
-        .root_source_file = .{ .path = "main.zig" },
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .optimize = optimize,
+            .target = target,
+        }),
     });
 
     const run = b.addRunArtifact(main);

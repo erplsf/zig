@@ -1,6 +1,6 @@
 //! Ascon is a 320-bit permutation, selected as new standard for lightweight cryptography
 //! in the NIST Lightweight Cryptography competition (2019–2023).
-//! https://csrc.nist.gov/News/2023/lightweight-cryptography-nist-selects-ascon
+//! https://csrc.nist.gov/pubs/sp/800/232/ipd
 //!
 //! The permutation is compact, and optimized for timing and side channel resistance,
 //! making it a good choice for embedded applications.
@@ -8,19 +8,21 @@
 //! It is not meant to be used directly, but as a building block for symmetric cryptography.
 
 const std = @import("std");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const debug = std.debug;
 const mem = std.mem;
 const testing = std.testing;
 const rotr = std.math.rotr;
+const native_endian = builtin.cpu.arch.endian();
 
 /// An Ascon state.
 ///
 /// The state is represented as 5 64-bit words.
 ///
-/// The NIST submission (v1.2) serializes these words as big-endian,
-/// but software implementations are free to use native endianness.
-pub fn State(comptime endian: builtin.Endian) type {
+/// The original NIST submission (v1.2) serializes these words as big-endian,
+/// but NIST SP 800-232 switched to a little-endian representation.
+/// Software implementations are free to use native endianness with no security degradation.
+pub fn State(comptime endian: std.builtin.Endian) type {
     return struct {
         const Self = @This();
 
@@ -41,8 +43,7 @@ pub fn State(comptime endian: builtin.Endian) type {
 
         /// Initialize the state from u64 words in native endianness.
         pub fn initFromWords(initial_state: [5]u64) Self {
-            var state = Self{ .st = initial_state };
-            return state;
+            return .{ .st = initial_state };
         }
 
         /// Initialize the state for Ascon XOF
@@ -95,8 +96,8 @@ pub fn State(comptime endian: builtin.Endian) type {
         /// XOR a byte into the state at a given offset.
         pub fn addByte(self: *Self, byte: u8, offset: usize) void {
             const z = switch (endian) {
-                .Big => 64 - 8 - 8 * @truncate(u6, offset % 8),
-                .Little => 8 * @truncate(u6, offset % 8),
+                .big => 64 - 8 - 8 * @as(u6, @truncate(offset % 8)),
+                .little => 8 * @as(u6, @truncate(offset % 8)),
             };
             self.st[offset / 8] ^= @as(u64, byte) << z;
         }
@@ -133,14 +134,14 @@ pub fn State(comptime endian: builtin.Endian) type {
 
             var i: usize = 0;
             while (i + 8 <= in.len) : (i += 8) {
-                const x = mem.readIntNative(u64, in[i..][0..8]) ^ mem.nativeTo(u64, self.st[i / 8], endian);
-                mem.writeIntNative(u64, out[i..][0..8], x);
+                const x = mem.readInt(u64, in[i..][0..8], native_endian) ^ mem.nativeTo(u64, self.st[i / 8], endian);
+                mem.writeInt(u64, out[i..][0..8], x, native_endian);
             }
             if (i < in.len) {
                 var padded = [_]u8{0} ** 8;
                 @memcpy(padded[0 .. in.len - i], in[i..]);
-                const x = mem.readIntNative(u64, &padded) ^ mem.nativeTo(u64, self.st[i / 8], endian);
-                mem.writeIntNative(u64, &padded, x);
+                const x = mem.readInt(u64, &padded, native_endian) ^ mem.nativeTo(u64, self.st[i / 8], endian);
+                mem.writeInt(u64, &padded, x, native_endian);
                 @memcpy(out[i..], padded[0 .. in.len - i]);
             }
         }
@@ -152,12 +153,12 @@ pub fn State(comptime endian: builtin.Endian) type {
 
         /// Clear the entire state, disabling compiler optimizations.
         pub fn secureZero(self: *Self) void {
-            std.crypto.utils.secureZero(u64, &self.st);
+            std.crypto.secureZero(u64, &self.st);
         }
 
         /// Apply a reduced-round permutation to the state.
         pub inline fn permuteR(state: *Self, comptime rounds: u4) void {
-            const rks = [12]u64{ 0xf0, 0xe1, 0xd2, 0xc3, 0xb4, 0xa5, 0x96, 0x87, 0x78, 0x69, 0x5a, 0x4b };
+            const rks = [16]u64{ 0x3c, 0x2d, 0x1e, 0x0f, 0xf0, 0xe1, 0xd2, 0xc3, 0xb4, 0xa5, 0x96, 0x87, 0x78, 0x69, 0x5a, 0x4b };
             inline for (rks[rks.len - rounds ..]) |rk| {
                 state.round(rk);
             }
@@ -214,7 +215,7 @@ pub fn State(comptime endian: builtin.Endian) type {
 }
 
 test "ascon" {
-    const Ascon = State(.Big);
+    const Ascon = State(.big);
     const bytes = [_]u8{0x01} ** Ascon.block_bytes;
     var st = Ascon.init(bytes);
     var out: [Ascon.block_bytes]u8 = undefined;

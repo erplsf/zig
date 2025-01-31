@@ -11,7 +11,6 @@ const bits = switch (@import("builtin").cpu.arch) {
     .powerpc64le,
     .sparc,
     .sparc64,
-    .sparcel,
     => .{ .size = 13, .dir = 3, .none = 1, .read = 2, .write = 4 },
     else => .{ .size = 14, .dir = 2, .none = 0, .read = 2, .write = 1 },
 };
@@ -32,7 +31,7 @@ fn io_impl(dir: Direction, io_type: u8, nr: u8, comptime T: type) u32 {
         .io_type = io_type,
         .nr = nr,
     };
-    return @bitCast(u32, request);
+    return @as(u32, @bitCast(request));
 }
 
 pub fn IO(io_type: u8, nr: u8) u32 {

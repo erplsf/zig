@@ -8,9 +8,9 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__paritysi2, .{ .name = "__paritysi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__paritydi2, .{ .name = "__paritydi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__parityti2, .{ .name = "__parityti2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__paritysi2, .{ .name = "__paritysi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__paritydi2, .{ .name = "__paritydi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__parityti2, .{ .name = "__parityti2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __paritysi2(a: i32) callconv(.C) i32 {
@@ -26,12 +26,7 @@ pub fn __parityti2(a: i128) callconv(.C) i32 {
 }
 
 inline fn parityXi2(comptime T: type, a: T) i32 {
-    var x = switch (@bitSizeOf(T)) {
-        32 => @bitCast(u32, a),
-        64 => @bitCast(u64, a),
-        128 => @bitCast(u128, a),
-        else => unreachable,
-    };
+    var x: std.meta.Int(.unsigned, @typeInfo(T).int.bits) = @bitCast(a);
     // Bit Twiddling Hacks: Compute parity in parallel
     comptime var shift: u8 = @bitSizeOf(T) / 2;
     inline while (shift > 2) {
@@ -39,7 +34,7 @@ inline fn parityXi2(comptime T: type, a: T) i32 {
         shift = shift >> 1;
     }
     x &= 0xf;
-    return (@intCast(u16, 0x6996) >> @intCast(u4, x)) & 1; // optimization for >>2 and >>1
+    return (@as(u16, 0x6996) >> @intCast(x)) & 1; // optimization for >>2 and >>1
 }
 
 test {

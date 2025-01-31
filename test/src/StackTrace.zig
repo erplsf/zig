@@ -1,48 +1,54 @@
 b: *std.Build,
 step: *Step,
 test_index: usize,
-test_filter: ?[]const u8,
+test_filters: []const []const u8,
 optimize_modes: []const OptimizeMode,
-check_exe: *std.Build.CompileStep,
+check_exe: *std.Build.Step.Compile,
 
-const Expect = [@typeInfo(OptimizeMode).Enum.fields.len][]const u8;
+const Config = struct {
+    name: []const u8,
+    source: []const u8,
+    Debug: ?PerMode = null,
+    ReleaseSmall: ?PerMode = null,
+    ReleaseSafe: ?PerMode = null,
+    ReleaseFast: ?PerMode = null,
 
-pub fn addCase(self: *StackTrace, config: anytype) void {
-    if (@hasField(@TypeOf(config), "exclude")) {
-        if (config.exclude.exclude()) return;
+    const PerMode = struct {
+        expect: []const u8,
+        exclude_os: []const std.Target.Os.Tag = &.{},
+        error_tracing: ?bool = null,
+    };
+};
+
+pub fn addCase(self: *StackTrace, config: Config) void {
+    self.addCaseInner(config, true);
+    if (shouldTestNonLlvm(self.b.graph.host.result)) {
+        self.addCaseInner(config, false);
     }
-    if (@hasField(@TypeOf(config), "exclude_arch")) {
-        const exclude_arch: []const std.Target.Cpu.Arch = &config.exclude_arch;
-        for (exclude_arch) |arch| if (arch == builtin.cpu.arch) return;
-    }
-    if (@hasField(@TypeOf(config), "exclude_os")) {
-        const exclude_os: []const std.Target.Os.Tag = &config.exclude_os;
-        for (exclude_os) |os| if (os == builtin.os.tag) return;
-    }
-    for (self.optimize_modes) |optimize_mode| {
-        switch (optimize_mode) {
-            .Debug => {
-                if (@hasField(@TypeOf(config), "Debug")) {
-                    self.addExpect(config.name, config.source, optimize_mode, config.Debug);
-                }
-            },
-            .ReleaseSafe => {
-                if (@hasField(@TypeOf(config), "ReleaseSafe")) {
-                    self.addExpect(config.name, config.source, optimize_mode, config.ReleaseSafe);
-                }
-            },
-            .ReleaseFast => {
-                if (@hasField(@TypeOf(config), "ReleaseFast")) {
-                    self.addExpect(config.name, config.source, optimize_mode, config.ReleaseFast);
-                }
-            },
-            .ReleaseSmall => {
-                if (@hasField(@TypeOf(config), "ReleaseSmall")) {
-                    self.addExpect(config.name, config.source, optimize_mode, config.ReleaseSmall);
-                }
-            },
-        }
-    }
+}
+
+fn addCaseInner(self: *StackTrace, config: Config, use_llvm: bool) void {
+    if (config.Debug) |per_mode|
+        self.addExpect(config.name, config.source, .Debug, use_llvm, per_mode);
+
+    if (config.ReleaseSmall) |per_mode|
+        self.addExpect(config.name, config.source, .ReleaseSmall, use_llvm, per_mode);
+
+    if (config.ReleaseFast) |per_mode|
+        self.addExpect(config.name, config.source, .ReleaseFast, use_llvm, per_mode);
+
+    if (config.ReleaseSafe) |per_mode|
+        self.addExpect(config.name, config.source, .ReleaseSafe, use_llvm, per_mode);
+}
+
+fn shouldTestNonLlvm(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .x86_64 => switch (target.ofmt) {
+            .elf => true,
+            else => false,
+        },
+        else => false,
+    };
 }
 
 fn addExpect(
@@ -50,46 +56,41 @@ fn addExpect(
     name: []const u8,
     source: []const u8,
     optimize_mode: OptimizeMode,
-    mode_config: anytype,
+    use_llvm: bool,
+    mode_config: Config.PerMode,
 ) void {
-    if (@hasField(@TypeOf(mode_config), "exclude")) {
-        if (mode_config.exclude.exclude()) return;
-    }
-    if (@hasField(@TypeOf(mode_config), "exclude_arch")) {
-        const exclude_arch: []const std.Target.Cpu.Arch = &mode_config.exclude_arch;
-        for (exclude_arch) |arch| if (arch == builtin.cpu.arch) return;
-    }
-    if (@hasField(@TypeOf(mode_config), "exclude_os")) {
-        const exclude_os: []const std.Target.Os.Tag = &mode_config.exclude_os;
-        for (exclude_os) |os| if (os == builtin.os.tag) return;
-    }
+    for (mode_config.exclude_os) |tag| if (tag == builtin.os.tag) return;
 
     const b = self.b;
-    const annotated_case_name = fmt.allocPrint(b.allocator, "check {s} ({s})", .{
-        name, @tagName(optimize_mode),
-    }) catch @panic("OOM");
-    if (self.test_filter) |filter| {
-        if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
-    }
+    const annotated_case_name = b.fmt("check {s} ({s} {s})", .{
+        name, @tagName(optimize_mode), if (use_llvm) "llvm" else "selfhosted",
+    });
+    for (self.test_filters) |test_filter| {
+        if (mem.indexOf(u8, annotated_case_name, test_filter)) |_| break;
+    } else if (self.test_filters.len > 0) return;
 
-    const src_basename = "source.zig";
-    const write_src = b.addWriteFile(src_basename, source);
+    const write_files = b.addWriteFiles();
+    const source_zig = write_files.add("source.zig", source);
     const exe = b.addExecutable(.{
         .name = "test",
-        .root_source_file = write_src.getFileSource(src_basename).?,
-        .optimize = optimize_mode,
-        .target = .{},
+        .root_module = b.createModule(.{
+            .root_source_file = source_zig,
+            .optimize = optimize_mode,
+            .target = b.graph.host,
+            .error_tracing = mode_config.error_tracing,
+        }),
+        .use_llvm = use_llvm,
     });
 
     const run = b.addRunArtifact(exe);
-    run.removeEnvironmentVariable("ZIG_DEBUG_COLOR");
+    run.removeEnvironmentVariable("CLICOLOR_FORCE");
     run.setEnvironmentVariable("NO_COLOR", "1");
     run.expectExitCode(1);
     run.expectStdOutEqual("");
 
     const check_run = b.addRunArtifact(self.check_exe);
     check_run.setName(annotated_case_name);
-    check_run.addFileSourceArg(run.captureStdErr());
+    check_run.addFileArg(run.captureStdErr());
     check_run.addArgs(&.{
         @tagName(optimize_mode),
     });
@@ -103,5 +104,4 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Step = std.Build.Step;
 const OptimizeMode = std.builtin.OptimizeMode;
-const fmt = std.fmt;
 const mem = std.mem;

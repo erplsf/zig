@@ -1,7 +1,9 @@
 export fn foo() void {
     bar();
 }
-fn bar() i32 { return 0; }
+fn bar() i32 {
+    return 0;
+}
 
 // error
 // backend=stage2
@@ -9,4 +11,4 @@ fn bar() i32 { return 0; }
 //
 // :2:8: error: value of type 'i32' ignored
 // :2:8: note: all non-void values must be used
-// :2:8: note: this error can be suppressed by assigning the value to '_'
+// :2:8: note: to discard the value, assign it to '_'

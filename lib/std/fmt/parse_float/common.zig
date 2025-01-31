@@ -23,7 +23,11 @@ pub fn BiasedFp(comptime T: type) type {
         }
 
         pub fn inf(comptime FloatT: type) Self {
-            return .{ .f = 0, .e = (1 << std.math.floatExponentBits(FloatT)) - 1 };
+            const e = (1 << std.math.floatExponentBits(FloatT)) - 1;
+            return switch (FloatT) {
+                f80 => .{ .f = 0x8000000000000000, .e = e },
+                else => .{ .f = 0, .e = e },
+            };
         }
 
         pub fn eql(self: Self, other: Self) bool {
@@ -32,7 +36,7 @@ pub fn BiasedFp(comptime T: type) type {
 
         pub fn toFloat(self: Self, comptime FloatT: type, negative: bool) FloatT {
             var word = self.f;
-            word |= @intCast(MantissaT, self.e) << std.math.floatMantissaBits(FloatT);
+            word |= @as(MantissaT, @intCast(self.e)) << std.math.floatMantissaBits(FloatT);
             var f = floatFromUnsigned(FloatT, MantissaT, word);
             if (negative) f = -f;
             return f;
@@ -42,10 +46,11 @@ pub fn BiasedFp(comptime T: type) type {
 
 pub fn floatFromUnsigned(comptime T: type, comptime MantissaT: type, v: MantissaT) T {
     return switch (T) {
-        f16 => @bitCast(f16, @truncate(u16, v)),
-        f32 => @bitCast(f32, @truncate(u32, v)),
-        f64 => @bitCast(f64, @truncate(u64, v)),
-        f128 => @bitCast(f128, v),
+        f16 => @as(f16, @bitCast(@as(u16, @truncate(v)))),
+        f32 => @as(f32, @bitCast(@as(u32, @truncate(v)))),
+        f64 => @as(f64, @bitCast(@as(u64, @truncate(v)))),
+        f80 => @as(f80, @bitCast(@as(u80, @truncate(v)))),
+        f128 => @as(f128, @bitCast(v)),
         else => unreachable,
     };
 }
@@ -85,7 +90,7 @@ pub fn isDigit(c: u8, comptime base: u8) bool {
 pub fn mantissaType(comptime T: type) type {
     return switch (T) {
         f16, f32, f64 => u64,
-        f128 => u128,
+        f80, f128 => u128,
         else => unreachable,
     };
 }

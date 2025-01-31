@@ -15,7 +15,7 @@
 #ifndef _SECIMP
 #define _SECIMP __declspec(dllimport)
 #endif /* _SECIMP */
-#endif /* defined(_CRTBLD) || defined(__LIBMSVCRT__) */
+#endif /* defined(__LIBMSVCRT__) */
 
 #ifdef __cplusplus
 extern "C" {
@@ -144,7 +144,14 @@ extern "C" {
   _CONST_RETURN wchar_t *__cdecl wcsrchr(const wchar_t *_Str,wchar_t _Ch);
   size_t __cdecl wcsspn(const wchar_t *_Str,const wchar_t *_Control);
   _CONST_RETURN wchar_t *__cdecl wcsstr(const wchar_t *_Str,const wchar_t *_SubStr);
-  wchar_t *__cdecl wcstok(wchar_t * __restrict__ _Str,const wchar_t * __restrict__ _Delim) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
+  wchar_t *__cdecl wcstok(wchar_t * __restrict__ _Str,const wchar_t * __restrict__ _Delim,wchar_t ** __restrict__ _Ptr) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
+  wchar_t *__cdecl _wcstok(wchar_t * __restrict__ _Str,const wchar_t * __restrict__ _Delim) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
+#if defined(_CRT_NON_CONFORMING_WCSTOK) && !defined(__cplusplus)
+  #define wcstok _wcstok
+#endif
+#if !defined(_CRT_NO_INLINE_DEPRECATED_WCSTOK) && defined(__cplusplus)
+  extern "C++" inline wchar_t *__cdecl wcstok(wchar_t * __restrict__ _Str,const wchar_t * __restrict__ _Delim) { return _wcstok(_Str, _Delim); }
+#endif
   _CRTIMP wchar_t *__cdecl _wcserror(int _ErrNum) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
   _CRTIMP wchar_t *__cdecl __wcserror(const wchar_t *_Str) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
   _CRTIMP int __cdecl _wcsicmp(const wchar_t *_Str1,const wchar_t *_Str2);

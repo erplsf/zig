@@ -4,6 +4,8 @@ const maxInt = std.math.maxInt;
 const builtin = @import("builtin");
 
 test "int comparison elision" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     testIntEdges(u0);
     testIntEdges(i0);
     testIntEdges(u1);
@@ -13,9 +15,9 @@ test "int comparison elision" {
 
     // TODO: support int types > 128 bits wide in other backends
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     // TODO: panic: integer overflow with int types > 65528 bits wide
     // TODO: LLVM generates too many parameters for wasmtime when splitting up int > 64000 bits wide
@@ -30,6 +32,7 @@ fn testIntEdges(comptime T: type) void {
     const max = maxInt(T);
 
     var runtime_val: T = undefined;
+    _ = &runtime_val;
 
     if (min > runtime_val) @compileError("analyzed impossible branch");
     if (min <= runtime_val) {} else @compileError("analyzed impossible branch");
@@ -104,4 +107,9 @@ fn testIntEdges(comptime T: type) void {
     if (undef_const >= max + 1) @compileError("analyzed impossible branch");
     if (undef_const == max + 1) @compileError("analyzed impossible branch");
     if (undef_const != max + 1) {} else @compileError("analyzed impossible branch");
+}
+
+test "comparison elided on large integer value" {
+    try std.testing.expect(-1 == @as(i8, -3) >> 2);
+    try std.testing.expect(-1 == -3 >> 2000);
 }

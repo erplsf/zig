@@ -7,22 +7,22 @@ pub const panic = common.panic;
 
 comptime {
     // symbol compatibility with libgcc
-    @export(__ashlsi3, .{ .name = "__ashlsi3", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__ashrsi3, .{ .name = "__ashrsi3", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__lshrsi3, .{ .name = "__lshrsi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ashlsi3, .{ .name = "__ashlsi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ashrsi3, .{ .name = "__ashrsi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__lshrsi3, .{ .name = "__lshrsi3", .linkage = common.linkage, .visibility = common.visibility });
 
-    @export(__ashlti3, .{ .name = "__ashlti3", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__ashrti3, .{ .name = "__ashrti3", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__lshrti3, .{ .name = "__lshrti3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ashlti3, .{ .name = "__ashlti3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ashrti3, .{ .name = "__ashrti3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__lshrti3, .{ .name = "__lshrti3", .linkage = common.linkage, .visibility = common.visibility });
 
     if (common.want_aeabi) {
-        @export(__aeabi_llsl, .{ .name = "__aeabi_llsl", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__aeabi_lasr, .{ .name = "__aeabi_lasr", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__aeabi_llsr, .{ .name = "__aeabi_llsr", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__aeabi_llsl, .{ .name = "__aeabi_llsl", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__aeabi_lasr, .{ .name = "__aeabi_lasr", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__aeabi_llsr, .{ .name = "__aeabi_llsr", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(__ashldi3, .{ .name = "__ashldi3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__ashrdi3, .{ .name = "__ashrdi3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__lshrdi3, .{ .name = "__lshrdi3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__ashldi3, .{ .name = "__ashldi3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__ashrdi3, .{ .name = "__ashrdi3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__lshrdi3, .{ .name = "__lshrdi3", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 
@@ -30,20 +30,19 @@ comptime {
 // Precondition: 0 <= b < bits_in_dword
 inline fn ashlXi3(comptime T: type, a: T, b: i32) T {
     const word_t = common.HalveInt(T, false);
-    const S = Log2Int(word_t.HalfT);
 
     const input = word_t{ .all = a };
     var output: word_t = undefined;
 
     if (b >= word_t.bits) {
         output.s.low = 0;
-        output.s.high = input.s.low << @intCast(S, b - word_t.bits);
+        output.s.high = input.s.low << @intCast(b - word_t.bits);
     } else if (b == 0) {
         return a;
     } else {
-        output.s.low = input.s.low << @intCast(S, b);
-        output.s.high = input.s.high << @intCast(S, b);
-        output.s.high |= input.s.low >> @intCast(S, word_t.bits - b);
+        output.s.low = input.s.low << @intCast(b);
+        output.s.high = input.s.high << @intCast(b);
+        output.s.high |= input.s.low >> @intCast(word_t.bits - b);
     }
 
     return output.all;
@@ -53,24 +52,20 @@ inline fn ashlXi3(comptime T: type, a: T, b: i32) T {
 // Precondition: 0 <= b < T.bit_count
 inline fn ashrXi3(comptime T: type, a: T, b: i32) T {
     const word_t = common.HalveInt(T, true);
-    const S = Log2Int(word_t.HalfT);
 
     const input = word_t{ .all = a };
     var output: word_t = undefined;
 
     if (b >= word_t.bits) {
         output.s.high = input.s.high >> (word_t.bits - 1);
-        output.s.low = input.s.high >> @intCast(S, b - word_t.bits);
+        output.s.low = input.s.high >> @intCast(b - word_t.bits);
     } else if (b == 0) {
         return a;
     } else {
-        output.s.high = input.s.high >> @intCast(S, b);
-        output.s.low = input.s.high << @intCast(S, word_t.bits - b);
+        output.s.high = input.s.high >> @intCast(b);
+        output.s.low = input.s.high << @intCast(word_t.bits - b);
         // Avoid sign-extension here
-        output.s.low |= @bitCast(
-            word_t.HalfT,
-            @bitCast(word_t.HalfTU, input.s.low) >> @intCast(S, b),
-        );
+        output.s.low |= @bitCast(@as(word_t.HalfTU, @bitCast(input.s.low)) >> @intCast(b));
     }
 
     return output.all;
@@ -80,20 +75,19 @@ inline fn ashrXi3(comptime T: type, a: T, b: i32) T {
 // Precondition: 0 <= b < T.bit_count
 inline fn lshrXi3(comptime T: type, a: T, b: i32) T {
     const word_t = common.HalveInt(T, false);
-    const S = Log2Int(word_t.HalfT);
 
     const input = word_t{ .all = a };
     var output: word_t = undefined;
 
     if (b >= word_t.bits) {
         output.s.high = 0;
-        output.s.low = input.s.high >> @intCast(S, b - word_t.bits);
+        output.s.low = input.s.high >> @intCast(b - word_t.bits);
     } else if (b == 0) {
         return a;
     } else {
-        output.s.high = input.s.high >> @intCast(S, b);
-        output.s.low = input.s.high << @intCast(S, word_t.bits - b);
-        output.s.low |= input.s.low >> @intCast(S, b);
+        output.s.high = input.s.high >> @intCast(b);
+        output.s.low = input.s.high << @intCast(word_t.bits - b);
+        output.s.low |= input.s.low >> @intCast(b);
     }
 
     return output.all;

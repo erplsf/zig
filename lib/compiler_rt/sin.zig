@@ -8,6 +8,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
 const math = std.math;
+const mem = std.mem;
 const expect = std.testing.expect;
 const common = @import("common.zig");
 
@@ -18,20 +19,20 @@ const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
 pub const panic = common.panic;
 
 comptime {
-    @export(__sinh, .{ .name = "__sinh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(sinf, .{ .name = "sinf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(sin, .{ .name = "sin", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__sinx, .{ .name = "__sinx", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__sinh, .{ .name = "__sinh", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&sinf, .{ .name = "sinf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&sin, .{ .name = "sin", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__sinx, .{ .name = "__sinx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(sinq, .{ .name = "sinf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&sinq, .{ .name = "sinf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(sinq, .{ .name = "sinq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(sinl, .{ .name = "sinl", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&sinq, .{ .name = "sinq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&sinl, .{ .name = "sinl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __sinh(x: f16) callconv(.C) f16 {
     // TODO: more efficient implementation
-    return @floatCast(f16, sinf(x));
+    return @floatCast(sinf(x));
 }
 
 pub fn sinf(x: f32) callconv(.C) f32 {
@@ -41,14 +42,14 @@ pub fn sinf(x: f32) callconv(.C) f32 {
     const s3pio2: f64 = 3.0 * math.pi / 2.0; // 0x4012D97C, 0x7F3321D2
     const s4pio2: f64 = 4.0 * math.pi / 2.0; // 0x401921FB, 0x54442D18
 
-    var ix = @bitCast(u32, x);
+    var ix: u32 = @bitCast(x);
     const sign = ix >> 31 != 0;
     ix &= 0x7fffffff;
 
     if (ix <= 0x3f490fda) { // |x| ~<= pi/4
         if (ix < 0x39800000) { // |x| < 2**-12
             // raise inexact if x!=0 and underflow if subnormal
-            math.doNotOptimizeAway(if (ix < 0x00800000) x / 0x1p120 else x + 0x1p120);
+            if (common.want_float_exceptions) mem.doNotOptimizeAway(if (ix < 0x00800000) x / 0x1p120 else x + 0x1p120);
             return x;
         }
         return trig.__sindf(x);
@@ -90,14 +91,14 @@ pub fn sinf(x: f32) callconv(.C) f32 {
 }
 
 pub fn sin(x: f64) callconv(.C) f64 {
-    var ix = @bitCast(u64, x) >> 32;
+    var ix = @as(u64, @bitCast(x)) >> 32;
     ix &= 0x7fffffff;
 
     // |x| ~< pi/4
     if (ix <= 0x3fe921fb) {
         if (ix < 0x3e500000) { // |x| < 2**-26
             // raise inexact if x != 0 and underflow if subnormal
-            math.doNotOptimizeAway(if (ix < 0x00100000) x / 0x1p120 else x + 0x1p120);
+            if (common.want_float_exceptions) mem.doNotOptimizeAway(if (ix < 0x00100000) x / 0x1p120 else x + 0x1p120);
             return x;
         }
         return trig.__sin(x, 0.0, 0);
@@ -120,16 +121,16 @@ pub fn sin(x: f64) callconv(.C) f64 {
 
 pub fn __sinx(x: f80) callconv(.C) f80 {
     // TODO: more efficient implementation
-    return @floatCast(f80, sinq(x));
+    return @floatCast(sinq(x));
 }
 
 pub fn sinq(x: f128) callconv(.C) f128 {
     // TODO: more correct implementation
-    return sin(@floatCast(f64, x));
+    return sin(@floatCast(x));
 }
 
 pub fn sinl(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __sinh(x),
         32 => return sinf(x),
         64 => return sin(x),
@@ -180,11 +181,11 @@ test "sin64.special" {
 }
 
 test "sin32 #9901" {
-    const float = @bitCast(f32, @as(u32, 0b11100011111111110000000000000000));
+    const float: f32 = @bitCast(@as(u32, 0b11100011111111110000000000000000));
     _ = sinf(float);
 }
 
 test "sin64 #9901" {
-    const float = @bitCast(f64, @as(u64, 0b1111111101000001000000001111110111111111100000000000000000000001));
+    const float: f64 = @bitCast(@as(u64, 0b1111111101000001000000001111110111111111100000000000000000000001));
     _ = sin(float);
 }

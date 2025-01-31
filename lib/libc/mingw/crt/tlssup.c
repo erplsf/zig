@@ -44,6 +44,7 @@ _CRTALLOC(".tls$ZZZ") char *_tls_end = NULL;
 _CRTALLOC(".CRT$XLA") PIMAGE_TLS_CALLBACK __xl_a = 0;
 _CRTALLOC(".CRT$XLZ") PIMAGE_TLS_CALLBACK __xl_z = 0;
 
+__attribute__((used))
 const IMAGE_TLS_DIRECTORY _tls_used = {
   (ULONG_PTR) &_tls_start, (ULONG_PTR) &_tls_end,
   (ULONG_PTR) &_tls_index, (ULONG_PTR) (&__xl_a+1),
@@ -70,9 +71,10 @@ static __CRT_THREAD TlsDtorNode dtor_list_head;
 
 extern int _CRT_MT;
 
-BOOL WINAPI __dyn_tls_init (HANDLE, DWORD, LPVOID);
+void WINAPI __dyn_tls_init (HANDLE, DWORD, LPVOID);
+void WINAPI __dyn_tls_dtor (HANDLE, DWORD, LPVOID);
 
-BOOL WINAPI
+void WINAPI
 __dyn_tls_init (HANDLE hDllHandle, DWORD dwReason, LPVOID lpreserved)
 {
   _PVFV *pfunc;
@@ -86,7 +88,7 @@ __dyn_tls_init (HANDLE hDllHandle, DWORD dwReason, LPVOID lpreserved)
     {
       if (dwReason == DLL_PROCESS_ATTACH)
         __mingw_TLScallback (hDllHandle, dwReason, lpreserved);
-      return TRUE;
+      return;
     }
 
   ps = (uintptr_t) &__xd_a;
@@ -97,11 +99,10 @@ __dyn_tls_init (HANDLE hDllHandle, DWORD dwReason, LPVOID lpreserved)
       if (*pfunc != NULL)
 	(*pfunc)();
     }
-  return TRUE;
 }
 
-const PIMAGE_TLS_CALLBACK __dyn_tls_init_callback = (const PIMAGE_TLS_CALLBACK) __dyn_tls_init;
-_CRTALLOC(".CRT$XLC") PIMAGE_TLS_CALLBACK __xl_c = (PIMAGE_TLS_CALLBACK) __dyn_tls_init;
+const PIMAGE_TLS_CALLBACK __dyn_tls_init_callback = __dyn_tls_init;
+_CRTALLOC(".CRT$XLC") PIMAGE_TLS_CALLBACK __xl_c = __dyn_tls_init;
 
 int __cdecl __tlregdtor (_PVFV);
 
@@ -132,7 +133,7 @@ __tlregdtor (_PVFV func)
   return 0;
 }
 
-static BOOL WINAPI
+void WINAPI
 __dyn_tls_dtor (HANDLE hDllHandle, DWORD dwReason, LPVOID lpreserved)
 {
 #if !defined (DISABLE_MS_TLS)
@@ -141,7 +142,7 @@ __dyn_tls_dtor (HANDLE hDllHandle, DWORD dwReason, LPVOID lpreserved)
 #endif
 
   if (dwReason != DLL_THREAD_DETACH && dwReason != DLL_PROCESS_DETACH)
-    return TRUE;
+    return;
   /* As TLS variables are detroyed already by DLL_THREAD_DETACH
      call, we have to avoid access on the possible DLL_PROCESS_DETACH
      call the already destroyed TLS vars.
@@ -164,10 +165,9 @@ __dyn_tls_dtor (HANDLE hDllHandle, DWORD dwReason, LPVOID lpreserved)
     }
 #endif
   __mingw_TLScallback (hDllHandle, dwReason, lpreserved);
-  return TRUE;
 }
 
-_CRTALLOC(".CRT$XLD") PIMAGE_TLS_CALLBACK __xl_d = (PIMAGE_TLS_CALLBACK) __dyn_tls_dtor;
+_CRTALLOC(".CRT$XLD") PIMAGE_TLS_CALLBACK __xl_d = __dyn_tls_dtor;
 
 
 int __mingw_initltsdrot_force = 0;

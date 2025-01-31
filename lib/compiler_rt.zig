@@ -1,12 +1,14 @@
 const builtin = @import("builtin");
+const common = @import("compiler_rt/common.zig");
 
-pub const panic = @import("compiler_rt/common.zig").panic;
+pub const panic = common.panic;
 
 comptime {
     // Integer routines
     _ = @import("compiler_rt/count0bits.zig");
     _ = @import("compiler_rt/parity.zig");
     _ = @import("compiler_rt/popcount.zig");
+    _ = @import("compiler_rt/bitreverse.zig");
     _ = @import("compiler_rt/bswap.zig");
     _ = @import("compiler_rt/cmp.zig");
 
@@ -55,7 +57,7 @@ comptime {
     _ = @import("compiler_rt/trunctfdf2.zig");
     _ = @import("compiler_rt/trunctfxf2.zig");
 
-    _ = @import("compiler_rt/float_to_int.zig");
+    _ = @import("compiler_rt/int_from_float.zig");
     _ = @import("compiler_rt/fixhfsi.zig");
     _ = @import("compiler_rt/fixhfdi.zig");
     _ = @import("compiler_rt/fixhfti.zig");
@@ -87,7 +89,7 @@ comptime {
     _ = @import("compiler_rt/fixunsxfdi.zig");
     _ = @import("compiler_rt/fixunsxfti.zig");
 
-    _ = @import("compiler_rt/int_to_float.zig");
+    _ = @import("compiler_rt/float_from_int.zig");
     _ = @import("compiler_rt/floatsihf.zig");
     _ = @import("compiler_rt/floatsisf.zig");
     _ = @import("compiler_rt/floatsidf.zig");
@@ -218,6 +220,7 @@ comptime {
     _ = @import("compiler_rt/aulldiv.zig");
     _ = @import("compiler_rt/aullrem.zig");
     _ = @import("compiler_rt/clear_cache.zig");
+    _ = @import("compiler_rt/hexagon.zig");
 
     if (@import("builtin").object_format != .c) {
         _ = @import("compiler_rt/atomics.zig");
@@ -233,5 +236,12 @@ comptime {
         _ = @import("compiler_rt/memmove.zig");
         _ = @import("compiler_rt/memcmp.zig");
         _ = @import("compiler_rt/bcmp.zig");
+        _ = @import("compiler_rt/ssp.zig");
+    }
+
+    if (!builtin.link_libc and builtin.abi == .msvc) {
+        @export(&_fltused, .{ .name = "_fltused", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
+
+var _fltused: c_int = 1;

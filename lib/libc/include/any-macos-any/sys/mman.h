@@ -161,6 +161,8 @@
 
 #define MAP_UNIX03       0x40000 /* UNIX03 compliance */
 
+#define MAP_TPRO         0x80000 /* Allocate a region that will be protected by TPRO */
+
 #endif  /* (!_POSIX_C_SOURCE || _DARWIN_C_SOURCE) */
 
 /*
@@ -209,6 +211,7 @@
 #define MADV_FREE_REUSE         8       /* caller wants to reuse those pages */
 #define MADV_CAN_REUSE          9
 #define MADV_PAGEOUT            10      /* page out now (internal only) */
+#define MADV_ZERO               11      /* zero pages without faulting in additional pages */
 
 /*
  * Return bits from mincore

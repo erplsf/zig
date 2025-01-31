@@ -23,11 +23,16 @@ pub fn MultiArrayList(comptime T: type) type {
         len: usize = 0,
         capacity: usize = 0,
 
+        pub const empty: Self = .{
+            .bytes = undefined,
+            .len = 0,
+            .capacity = 0,
+        };
+
         const Elem = switch (@typeInfo(T)) {
-            .Struct => T,
-            .Union => |u| struct {
-                pub const Bare =
-                    @Type(.{ .Union = .{
+            .@"struct" => T,
+            .@"union" => |u| struct {
+                pub const Bare = @Type(.{ .@"union" = .{
                     .layout = u.layout,
                     .tag_type = null,
                     .fields = u.fields,
@@ -64,56 +69,61 @@ pub fn MultiArrayList(comptime T: type) type {
         /// and then get the field arrays from the slice.
         pub const Slice = struct {
             /// This array is indexed by the field index which can be obtained
-            /// by using @enumToInt() on the Field enum
+            /// by using @intFromEnum() on the Field enum
             ptrs: [fields.len][*]u8,
             len: usize,
             capacity: usize,
+
+            pub const empty: Slice = .{
+                .ptrs = undefined,
+                .len = 0,
+                .capacity = 0,
+            };
 
             pub fn items(self: Slice, comptime field: Field) []FieldType(field) {
                 const F = FieldType(field);
                 if (self.capacity == 0) {
                     return &[_]F{};
                 }
-                const byte_ptr = self.ptrs[@enumToInt(field)];
+                const byte_ptr = self.ptrs[@intFromEnum(field)];
                 const casted_ptr: [*]F = if (@sizeOf(F) == 0)
                     undefined
                 else
-                    @ptrCast([*]F, @alignCast(@alignOf(F), byte_ptr));
+                    @ptrCast(@alignCast(byte_ptr));
                 return casted_ptr[0..self.len];
             }
 
             pub fn set(self: *Slice, index: usize, elem: T) void {
                 const e = switch (@typeInfo(T)) {
-                    .Struct => elem,
-                    .Union => Elem.fromT(elem),
+                    .@"struct" => elem,
+                    .@"union" => Elem.fromT(elem),
                     else => unreachable,
                 };
                 inline for (fields, 0..) |field_info, i| {
-                    self.items(@intToEnum(Field, i))[index] = @field(e, field_info.name);
+                    self.items(@as(Field, @enumFromInt(i)))[index] = @field(e, field_info.name);
                 }
             }
 
             pub fn get(self: Slice, index: usize) T {
                 var result: Elem = undefined;
                 inline for (fields, 0..) |field_info, i| {
-                    @field(result, field_info.name) = self.items(@intToEnum(Field, i))[index];
+                    @field(result, field_info.name) = self.items(@as(Field, @enumFromInt(i)))[index];
                 }
                 return switch (@typeInfo(T)) {
-                    .Struct => result,
-                    .Union => Elem.toT(result.tags, result.data),
+                    .@"struct" => result,
+                    .@"union" => Elem.toT(result.tags, result.data),
                     else => unreachable,
                 };
             }
 
             pub fn toMultiArrayList(self: Slice) Self {
-                if (self.ptrs.len == 0) {
+                if (self.ptrs.len == 0 or self.capacity == 0) {
                     return .{};
                 }
                 const unaligned_ptr = self.ptrs[sizes.fields[0]];
-                const aligned_ptr = @alignCast(@alignOf(Elem), unaligned_ptr);
-                const casted_ptr = @ptrCast([*]align(@alignOf(Elem)) u8, aligned_ptr);
+                const aligned_ptr: [*]align(@alignOf(Elem)) u8 = @alignCast(unaligned_ptr);
                 return .{
-                    .bytes = casted_ptr,
+                    .bytes = aligned_ptr,
                     .len = self.len,
                     .capacity = self.capacity,
                 };
@@ -160,7 +170,7 @@ pub fn MultiArrayList(comptime T: type) type {
                     return lhs.alignment > rhs.alignment;
                 }
             };
-            std.sort.sort(Data, &data, {}, Sort.lessThan);
+            mem.sort(Data, &data, {}, Sort.lessThan);
             var sizes_bytes: [fields.len]usize = undefined;
             var field_indexes: [fields.len]usize = undefined;
             for (data, 0..) |elem, i| {
@@ -288,13 +298,13 @@ pub fn MultiArrayList(comptime T: type) type {
             assert(index <= self.len);
             self.len += 1;
             const entry = switch (@typeInfo(T)) {
-                .Struct => elem,
-                .Union => Elem.fromT(elem),
+                .@"struct" => elem,
+                .@"union" => Elem.fromT(elem),
                 else => unreachable,
             };
             const slices = self.slice();
             inline for (fields, 0..) |field_info, field_index| {
-                const field_slice = slices.items(@intToEnum(Field, field_index));
+                const field_slice = slices.items(@as(Field, @enumFromInt(field_index)));
                 var i: usize = self.len - 1;
                 while (i > index) : (i -= 1) {
                     field_slice[i] = field_slice[i - 1];
@@ -309,7 +319,7 @@ pub fn MultiArrayList(comptime T: type) type {
         pub fn swapRemove(self: *Self, index: usize) void {
             const slices = self.slice();
             inline for (fields, 0..) |_, i| {
-                const field_slice = slices.items(@intToEnum(Field, i));
+                const field_slice = slices.items(@as(Field, @enumFromInt(i)));
                 field_slice[index] = field_slice[self.len - 1];
                 field_slice[self.len - 1] = undefined;
             }
@@ -321,7 +331,7 @@ pub fn MultiArrayList(comptime T: type) type {
         pub fn orderedRemove(self: *Self, index: usize) void {
             const slices = self.slice();
             inline for (fields, 0..) |_, field_index| {
-                const field_slice = slices.items(@intToEnum(Field, field_index));
+                const field_slice = slices.items(@as(Field, @enumFromInt(field_index)));
                 var i = index;
                 while (i < self.len - 1) : (i += 1) {
                     field_slice[i] = field_slice[i + 1];
@@ -342,11 +352,8 @@ pub fn MultiArrayList(comptime T: type) type {
         /// If `new_len` is greater than zero, this may fail to reduce the capacity,
         /// but the data remains intact and the length is updated to new_len.
         pub fn shrinkAndFree(self: *Self, gpa: Allocator, new_len: usize) void {
-            if (new_len == 0) {
-                gpa.free(self.allocatedBytes());
-                self.* = .{};
-                return;
-            }
+            if (new_len == 0) return clearAndFree(self, gpa);
+
             assert(new_len <= self.capacity);
             assert(new_len <= self.len);
 
@@ -358,7 +365,7 @@ pub fn MultiArrayList(comptime T: type) type {
                 const self_slice = self.slice();
                 inline for (fields, 0..) |field_info, i| {
                     if (@sizeOf(field_info.type) != 0) {
-                        const field = @intToEnum(Field, i);
+                        const field = @as(Field, @enumFromInt(i));
                         const dest_slice = self_slice.items(field)[new_len..];
                         // We use memset here for more efficient codegen in safety-checked,
                         // valgrind-enabled builds. Otherwise the valgrind client request
@@ -379,7 +386,7 @@ pub fn MultiArrayList(comptime T: type) type {
             const other_slice = other.slice();
             inline for (fields, 0..) |field_info, i| {
                 if (@sizeOf(field_info.type) != 0) {
-                    const field = @intToEnum(Field, i);
+                    const field = @as(Field, @enumFromInt(i));
                     @memcpy(other_slice.items(field), self_slice.items(field));
                 }
             }
@@ -387,11 +394,21 @@ pub fn MultiArrayList(comptime T: type) type {
             self.* = other;
         }
 
+        pub fn clearAndFree(self: *Self, gpa: Allocator) void {
+            gpa.free(self.allocatedBytes());
+            self.* = .{};
+        }
+
         /// Reduce length to `new_len`.
         /// Invalidates pointers to elements `items[new_len..]`.
         /// Keeps capacity the same.
         pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
             self.len = new_len;
+        }
+
+        /// Invalidates all element pointers.
+        pub fn clearRetainingCapacity(self: *Self) void {
+            self.len = 0;
         }
 
         /// Modify the array so that it can hold at least `new_capacity` items.
@@ -440,7 +457,7 @@ pub fn MultiArrayList(comptime T: type) type {
             const other_slice = other.slice();
             inline for (fields, 0..) |field_info, i| {
                 if (@sizeOf(field_info.type) != 0) {
-                    const field = @intToEnum(Field, i);
+                    const field = @as(Field, @enumFromInt(i));
                     @memcpy(other_slice.items(field), self_slice.items(field));
                 }
             }
@@ -459,7 +476,7 @@ pub fn MultiArrayList(comptime T: type) type {
             const result_slice = result.slice();
             inline for (fields, 0..) |field_info, i| {
                 if (@sizeOf(field_info.type) != 0) {
-                    const field = @intToEnum(Field, i);
+                    const field = @as(Field, @enumFromInt(i));
                     @memcpy(result_slice.items(field), self_slice.items(field));
                 }
             }
@@ -468,15 +485,15 @@ pub fn MultiArrayList(comptime T: type) type {
 
         /// `ctx` has the following method:
         /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
-        pub fn sort(self: Self, ctx: anytype) void {
-            const SortContext = struct {
+        fn sortInternal(self: Self, a: usize, b: usize, ctx: anytype, comptime mode: std.sort.Mode) void {
+            const sort_context: struct {
                 sub_ctx: @TypeOf(ctx),
                 slice: Slice,
 
                 pub fn swap(sc: @This(), a_index: usize, b_index: usize) void {
                     inline for (fields, 0..) |field_info, i| {
                         if (@sizeOf(field_info.type) != 0) {
-                            const field = @intToEnum(Field, i);
+                            const field: Field = @enumFromInt(i);
                             const ptr = sc.slice.items(field);
                             mem.swap(field_info.type, &ptr[a_index], &ptr[b_index]);
                         }
@@ -486,15 +503,56 @@ pub fn MultiArrayList(comptime T: type) type {
                 pub fn lessThan(sc: @This(), a_index: usize, b_index: usize) bool {
                     return sc.sub_ctx.lessThan(a_index, b_index);
                 }
-            };
-
-            std.sort.sortContext(self.len, SortContext{
+            } = .{
                 .sub_ctx = ctx,
                 .slice = self.slice(),
-            });
+            };
+
+            switch (mode) {
+                .stable => mem.sortContext(a, b, sort_context),
+                .unstable => mem.sortUnstableContext(a, b, sort_context),
+            }
         }
 
-        fn capacityInBytes(capacity: usize) usize {
+        /// This function guarantees a stable sort, i.e the relative order of equal elements is preserved during sorting.
+        /// Read more about stable sorting here: https://en.wikipedia.org/wiki/Sorting_algorithm#Stability
+        /// If this guarantee does not matter, `sortUnstable` might be a faster alternative.
+        /// `ctx` has the following method:
+        /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
+        pub fn sort(self: Self, ctx: anytype) void {
+            self.sortInternal(0, self.len, ctx, .stable);
+        }
+
+        /// Sorts only the subsection of items between indices `a` and `b` (excluding `b`)
+        /// This function guarantees a stable sort, i.e the relative order of equal elements is preserved during sorting.
+        /// Read more about stable sorting here: https://en.wikipedia.org/wiki/Sorting_algorithm#Stability
+        /// If this guarantee does not matter, `sortSpanUnstable` might be a faster alternative.
+        /// `ctx` has the following method:
+        /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
+        pub fn sortSpan(self: Self, a: usize, b: usize, ctx: anytype) void {
+            self.sortInternal(a, b, ctx, .stable);
+        }
+
+        /// This function does NOT guarantee a stable sort, i.e the relative order of equal elements may change during sorting.
+        /// Due to the weaker guarantees of this function, this may be faster than the stable `sort` method.
+        /// Read more about stable sorting here: https://en.wikipedia.org/wiki/Sorting_algorithm#Stability
+        /// `ctx` has the following method:
+        /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
+        pub fn sortUnstable(self: Self, ctx: anytype) void {
+            self.sortInternal(0, self.len, ctx, .unstable);
+        }
+
+        /// Sorts only the subsection of items between indices `a` and `b` (excluding `b`)
+        /// This function does NOT guarantee a stable sort, i.e the relative order of equal elements may change during sorting.
+        /// Due to the weaker guarantees of this function, this may be faster than the stable `sortSpan` method.
+        /// Read more about stable sorting here: https://en.wikipedia.org/wiki/Sorting_algorithm#Stability
+        /// `ctx` has the following method:
+        /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
+        pub fn sortSpanUnstable(self: Self, a: usize, b: usize, ctx: anytype) void {
+            self.sortInternal(a, b, ctx, .unstable);
+        }
+
+        pub fn capacityInBytes(capacity: usize) usize {
             comptime var elem_bytes: usize = 0;
             inline for (sizes.bytes) |size| elem_bytes += size;
             return elem_bytes * capacity;
@@ -513,12 +571,12 @@ pub fn MultiArrayList(comptime T: type) type {
             for (&entry_fields, sizes.fields) |*entry_field, i| entry_field.* = .{
                 .name = fields[i].name ++ "_ptr",
                 .type = *fields[i].type,
-                .default_value = null,
+                .default_value_ptr = null,
                 .is_comptime = fields[i].is_comptime,
                 .alignment = fields[i].alignment,
             };
-            break :entry @Type(.{ .Struct = .{
-                .layout = .Extern,
+            break :entry @Type(.{ .@"struct" = .{
+                .layout = .@"extern",
                 .fields = &entry_fields,
                 .decls = &.{},
                 .is_tuple = false,
@@ -534,9 +592,9 @@ pub fn MultiArrayList(comptime T: type) type {
         }
 
         comptime {
-            if (builtin.mode == .Debug) {
-                _ = dbHelper;
-                _ = Slice.dbHelper;
+            if (builtin.zig_backend == .stage2_llvm and !builtin.strip_debug_info) {
+                _ = &dbHelper;
+                _ = &Slice.dbHelper;
             }
         }
     };
@@ -595,9 +653,9 @@ test "basic usage" {
     var i: usize = 0;
     while (i < 6) : (i += 1) {
         try list.append(ally, .{
-            .a = @intCast(u32, 4 + i),
+            .a = @as(u32, @intCast(4 + i)),
             .b = "whatever",
-            .c = @intCast(u8, 'd' + i),
+            .c = @as(u8, @intCast('d' + i)),
         });
     }
 
@@ -632,6 +690,14 @@ test "basic usage" {
     try testing.expectEqual(@as(u32, 2), list.pop().a);
     try testing.expectEqual(@as(u8, 'a'), list.pop().c);
     try testing.expectEqual(@as(?Foo, null), list.popOrNull());
+
+    list.clearRetainingCapacity();
+    try testing.expectEqual(0, list.len);
+    try testing.expect(list.capacity > 0);
+
+    list.clearAndFree(ally);
+    try testing.expectEqual(0, list.len);
+    try testing.expectEqual(0, list.capacity);
 }
 
 // This was observed to fail on aarch64 with LLVM 11, when the capacityInBytes
@@ -794,7 +860,7 @@ test "union" {
 
     // Add 6 more things to force a capacity increase.
     for (0..6) |i| {
-        try list.append(ally, .{ .a = @intCast(u32, 4 + i) });
+        try list.append(ally, .{ .a = @as(u32, @intCast(4 + i)) });
     }
 
     try testing.expectEqualSlices(
@@ -802,22 +868,111 @@ test "union" {
         &.{ .a, .b, .b, .a, .a, .a, .a, .a, .a },
         list.items(.tags),
     );
-    try testing.expectEqual(list.get(0), .{ .a = 1 });
-    try testing.expectEqual(list.get(1), .{ .b = "zigzag" });
-    try testing.expectEqual(list.get(2), .{ .b = "foobar" });
-    try testing.expectEqual(list.get(3), .{ .a = 4 });
-    try testing.expectEqual(list.get(4), .{ .a = 5 });
-    try testing.expectEqual(list.get(5), .{ .a = 6 });
-    try testing.expectEqual(list.get(6), .{ .a = 7 });
-    try testing.expectEqual(list.get(7), .{ .a = 8 });
-    try testing.expectEqual(list.get(8), .{ .a = 9 });
+    try testing.expectEqual(Foo{ .a = 1 }, list.get(0));
+    try testing.expectEqual(Foo{ .b = "zigzag" }, list.get(1));
+    try testing.expectEqual(Foo{ .b = "foobar" }, list.get(2));
+    try testing.expectEqual(Foo{ .a = 4 }, list.get(3));
+    try testing.expectEqual(Foo{ .a = 5 }, list.get(4));
+    try testing.expectEqual(Foo{ .a = 6 }, list.get(5));
+    try testing.expectEqual(Foo{ .a = 7 }, list.get(6));
+    try testing.expectEqual(Foo{ .a = 8 }, list.get(7));
+    try testing.expectEqual(Foo{ .a = 9 }, list.get(8));
 
     list.shrinkAndFree(ally, 3);
 
     try testing.expectEqual(@as(usize, 3), list.items(.tags).len);
     try testing.expectEqualSlices(meta.Tag(Foo), list.items(.tags), &.{ .a, .b, .b });
 
-    try testing.expectEqual(list.get(0), .{ .a = 1 });
-    try testing.expectEqual(list.get(1), .{ .b = "zigzag" });
-    try testing.expectEqual(list.get(2), .{ .b = "foobar" });
+    try testing.expectEqual(Foo{ .a = 1 }, list.get(0));
+    try testing.expectEqual(Foo{ .b = "zigzag" }, list.get(1));
+    try testing.expectEqual(Foo{ .b = "foobar" }, list.get(2));
+}
+
+test "sorting a span" {
+    var list: MultiArrayList(struct { score: u32, chr: u8 }) = .{};
+    defer list.deinit(testing.allocator);
+
+    try list.ensureTotalCapacity(testing.allocator, 42);
+    for (
+        // zig fmt: off
+        [42]u8{ 'b', 'a', 'c', 'a', 'b', 'c', 'b', 'c', 'b', 'a', 'b', 'a', 'b', 'c', 'b', 'a', 'a', 'c', 'c', 'a', 'c', 'b', 'a', 'c', 'a', 'b', 'b', 'c', 'c', 'b', 'a', 'b', 'a', 'b', 'c', 'b', 'a', 'a', 'c', 'c', 'a', 'c' },
+        [42]u32{ 1,   1,   1,   2,   2,   2,   3,   3,   4,   3,   5,   4,   6,   4,   7,   5,   6,   5,   6,   7,   7,   8,   8,   8,   9,   9,  10,   9,  10,  11,  10,  12,  11,  13,  11,  14,  12,  13,  12,  13,  14,  14 },
+        // zig fmt: on
+    ) |chr, score| {
+        list.appendAssumeCapacity(.{ .chr = chr, .score = score });
+    }
+
+    const sliced = list.slice();
+    list.sortSpan(6, 21, struct {
+        chars: []const u8,
+
+        fn lessThan(ctx: @This(), a: usize, b: usize) bool {
+            return ctx.chars[a] < ctx.chars[b];
+        }
+    }{ .chars = sliced.items(.chr) });
+
+    var i: u32 = undefined;
+    var j: u32 = 6;
+    var c: u8 = 'a';
+
+    while (j < 21) {
+        i = j;
+        j += 5;
+        var n: u32 = 3;
+        for (sliced.items(.chr)[i..j], sliced.items(.score)[i..j]) |chr, score| {
+            try testing.expectEqual(score, n);
+            try testing.expectEqual(chr, c);
+            n += 1;
+        }
+        c += 1;
+    }
+}
+
+test "0 sized struct field" {
+    const ally = testing.allocator;
+
+    const Foo = struct {
+        a: u0,
+        b: f32,
+    };
+
+    var list = MultiArrayList(Foo){};
+    defer list.deinit(ally);
+
+    try testing.expectEqualSlices(u0, &[_]u0{}, list.items(.a));
+    try testing.expectEqualSlices(f32, &[_]f32{}, list.items(.b));
+
+    try list.append(ally, .{ .a = 0, .b = 42.0 });
+    try testing.expectEqualSlices(u0, &[_]u0{0}, list.items(.a));
+    try testing.expectEqualSlices(f32, &[_]f32{42.0}, list.items(.b));
+
+    try list.insert(ally, 0, .{ .a = 0, .b = -1.0 });
+    try testing.expectEqualSlices(u0, &[_]u0{ 0, 0 }, list.items(.a));
+    try testing.expectEqualSlices(f32, &[_]f32{ -1.0, 42.0 }, list.items(.b));
+
+    list.swapRemove(list.len - 1);
+    try testing.expectEqualSlices(u0, &[_]u0{0}, list.items(.a));
+    try testing.expectEqualSlices(f32, &[_]f32{-1.0}, list.items(.b));
+}
+
+test "0 sized struct" {
+    const ally = testing.allocator;
+
+    const Foo = struct {
+        a: u0,
+    };
+
+    var list = MultiArrayList(Foo){};
+    defer list.deinit(ally);
+
+    try testing.expectEqualSlices(u0, &[_]u0{}, list.items(.a));
+
+    try list.append(ally, .{ .a = 0 });
+    try testing.expectEqualSlices(u0, &[_]u0{0}, list.items(.a));
+
+    try list.insert(ally, 0, .{ .a = 0 });
+    try testing.expectEqualSlices(u0, &[_]u0{ 0, 0 }, list.items(.a));
+
+    list.swapRemove(list.len - 1);
+    try testing.expectEqualSlices(u0, &[_]u0{0}, list.items(.a));
 }

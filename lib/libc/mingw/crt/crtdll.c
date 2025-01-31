@@ -35,10 +35,10 @@
 extern void __cdecl _initterm(_PVFV *,_PVFV *);
 extern void __main ();
 extern void _pei386_runtime_relocator (void);
-extern _CRTALLOC(".CRT$XIA") _PIFV __xi_a[];
-extern _CRTALLOC(".CRT$XIZ") _PIFV __xi_z[];
-extern _CRTALLOC(".CRT$XCA") _PVFV __xc_a[];
-extern _CRTALLOC(".CRT$XCZ") _PVFV __xc_z[];
+extern _PIFV __xi_a[];
+extern _PIFV __xi_z[];
+extern _PVFV __xc_a[];
+extern _PVFV __xc_z[];
 
 
 /* TLS initialization hook.  */
@@ -142,6 +142,7 @@ WINBOOL WINAPI DllMainCRTStartup (HANDLE, DWORD, LPVOID);
 int __mingw_init_ehandler (void);
 #endif
 
+__attribute__((used)) /* required due to GNU LD bug: https://sourceware.org/bugzilla/show_bug.cgi?id=30300 */
 WINBOOL WINAPI
 DllMainCRTStartup (HANDLE hDllHandle, DWORD dwReason, LPVOID lpreserved)
 {
@@ -203,6 +204,8 @@ i__leave:
 
 int __cdecl atexit (_PVFV func)
 {
+    /* Do not use msvcrt's atexit() or UCRT's _crt_atexit() function as it
+     * cannot be called from DLL library which may be unloaded at runtime. */
     return _register_onexit_function(&atexit_table, (_onexit_t)func);
 }
 
